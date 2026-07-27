@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Membaca token dari GitHub Secrets
-TOKEN = os.environ.get("6686083484:AAH3bNJKZcgFML3jzSE0GwS8VolqMInXd9Y")
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxDA8f6N46XqmonJgIN-w-Zz-ZekarLjW1MI6F-UwbyNQ9npPInLQGYcOHaC8PyssSY/exec"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
