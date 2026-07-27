@@ -1,9 +1,24 @@
+import os
 import re
+import threading
 import requests
+from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# 1. Token Bot Telegram dari @BotFather
+# --- WEB SERVER UNTUK RENDER FREE TIER ---
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def health_check():
+    return "Bot Online!", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host='0.0.0.0', port=port)
+# ----------------------------------------
+
+# 1. Token Bot Telegram dari @BotFather (Gunakan token baru setelah di-reset)
 TOKEN = "6686083484:AAH3bNJKZcgFML3jzSE0GwS8VolqMInXd9Y"
 
 # 2. Web App URL dari Google Apps Script milikmu
@@ -70,6 +85,10 @@ async def convert_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Terjadi kesalahan koneksi saat mengambil data.")
 
 if __name__ == '__main__':
+    # 1. Jalankan Flask server di background thread (PENTING untuk Render Free Tier)
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # 2. Jalankan Bot Telegram
     app = ApplicationBuilder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
