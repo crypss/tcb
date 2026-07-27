@@ -8,9 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-# Chat ID Telegram kamu langsung dikunci di sini
-TARGET_CHAT_IDS = {978089424}
+TARGET_CHAT_ID = 978089424
 
 CRYPTO_MAP = {
     'btc': 'bitcoin',
@@ -26,7 +24,17 @@ CRYPTO_MAP = {
     'link': 'chainlink'
 }
 
-# --- FUNGSI AMBIL HARGA ---
+# --- API HARGA CRYPTO & FIAT ---
+def get_multiple_prices():
+    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,solana,ripple&vs_currencies=usd,idr"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+    except Exception as e:
+        logging.error(f"Error Request API CoinGecko: {e}")
+    return None
+
 def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
     crypto_id = CRYPTO_MAP.get(crypto_symbol.lower())
     target_id = CRYPTO_MAP.get(target_currency.lower())
@@ -38,10 +46,10 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id},{target_id}&vs_currencies=usd"
         try:
             res = requests.get(url, timeout=10).json()
-            price_from_usd = res.get(crypto_id, {}).get("usd")
-            price_to_usd = res.get(target_id, {}).get("usd")
-            if price_from_usd and price_to_usd:
-                return price_from_usd / price_to_usd
+            price_from = res.get(crypto_id, {}).get("usd")
+            price_to = res.get(target_id, {}).get("usd")
+            if price_from and price_to:
+                return price_from / price_to
         except Exception as e:
             logging.error(f"Error Crypto-to-Crypto: {e}")
             return None
@@ -60,27 +68,21 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
         res = requests.get(url, timeout=10).json()
         if res.get("result") == "success":
             return res["rates"].get(to_curr.upper())
-        return None
     except Exception as e:
         logging.error(f"Error Fiat rate: {e}")
-        return None
+    return None
 
-async def post_init(application):
-    commands = [
-        BotCommand("start", "Mulai bot & petunjuk penggunaan"),
-    ]
-    await application.bot.set_my_commands(commands)
-
-# --- JOB MONITORING HARGA (TIAP 1 MENIT) ---
+# --- JOB PERIODIK (TIAP 1 MENIT) ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
-    btc_usd = get_crypto_price("btc", "usd")
-    btc_idr = get_crypto_price("btc", "idr")
-    sol_usd = get_crypto_price("sol", "usd")
-    sol_idr = get_crypto_price("sol", "idr")
-    xrp_usd = get_crypto_price("xrp", "usd")
-    xrp_idr = get_crypto_price("xrp", "idr")
+    data = get_multiple_prices()
+    if data:
+        btc_usd = data.get("bitcoin", {}).get("usd", 0)
+        btc_idr = data.get("bitcoin", {}).get("idr", 0)
+        sol_usd = data.get("solana", {}).get("usd", 0)
+        sol_idr = data.get("solana", {}).get("idr", 0)
+        xrp_usd = data.get("ripple", {}).get("usd", 0)
+        xrp_idr = data.get("ripple", {}).get("idr", 0)
 
-    if btc_usd and sol_usd and xrp_usd:
         msg = (
             "📊 **UPDATE HARGA CRYPTO (Tiap 1 Menit)**\n\n"
             f"🪙 **Bitcoin (BTC):**\n"
@@ -94,24 +96,20 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
             f"• Rp {xrp_idr:,.0f} IDR"
         )
         
-        for chat_id in TARGET_CHAT_IDS:
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
-                logging.info(f"Berhasil mengirim update ke {chat_id}")
-            except Exception as e:
-                logging.error(f"Gagal mengirim pesan ke {chat_id}: {e}")
-    else:
-        logging.error("Gagal mengambil harga crypto dari API.")
+        try:
+            await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="Markdown")
+            logging.info("Update harga berhasil dikirim!")
+        except Exception as e:
+            logging.error(f"Gagal mengirim pesan: {e}")
 
-# --- HANDLER ---
+# --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 **Bot Konversi & Tracker Crypto**\n\n"
-        "• Update harga BTC, SOL, dan XRP akan dikirim otomatis **setiap 1 menit**.\n\n"
+        "👋 **Bot Konversi & Tracker Crypto Active**\n\n"
+        "• Update BTC, SOL, XRP dikirim otomatis setiap **1 menit**.\n\n"
         "💡 **Cara Konversi Manual:**\n"
-        "• `10 usd to idr`\n"
-        "• `1 xrp to usdt`\n"
-        "• `sol to idr`"
+        "• Mata Uang Fiat: `10 usd to idr`, `50000 idr to myr`, `100 eur to usd`\n"
+        "• Crypto: `1 btc to usd`, `0.5 sol to idr`, `100 xrp to usdt`"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,13 +120,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from_symbol = ""
     to_symbol = ""
 
+    # Parse format "10 usd to idr" atau "usd to idr"
     if len(parts) == 4 and parts[2] == "to":
         try:
             amount = float(parts[0])
             from_symbol = parts[1]
             to_symbol = parts[3]
         except ValueError:
-            await update.message.reply_text("⚠️ Angka tidak valid.")
+            await update.message.reply_text("⚠️ Angka nominal tidak valid.")
             return
     elif len(parts) == 3 and parts[1] == "to":
         amount = 1.0
@@ -137,42 +136,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
+    # Normalisasi nama mata uang/koin
     if from_symbol == "euro": from_symbol = "eur"
     if to_symbol == "euro": to_symbol = "eur"
 
+    # Cek jika ada komponen Crypto
     if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
         rate = get_crypto_price(from_symbol, to_symbol)
         if rate:
             total = amount * rate
             formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
             await update.message.reply_text(
-                f"🪙 **Konversi Crypto**\n\n"
+                f"🪙 **Hasil Konversi Crypto**\n\n"
                 f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
             )
             return
 
+    # Cek Konversi Mata Uang Fiat (USD, IDR, EUR, MYR, JPY, dll)
     fiat_rate = get_fiat_rate(from_symbol, to_symbol)
     if fiat_rate:
         total = amount * fiat_rate
         await update.message.reply_text(
-            f"💱 **Konversi Mata Uang**\n\n"
+            f"💱 **Hasil Konversi Mata Uang**\n\n"
             f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
         )
         return
 
+    await update.message.reply_text("⚠️ Simbol mata uang / crypto tidak dikenali.")
+
 if __name__ == '__main__':
     if not TOKEN:
-        raise ValueError("Error: TELEGRAM_TOKEN tidak ditemukan!")
+        raise ValueError("Error: TELEGRAM_TOKEN belum diatur!")
     
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    app = ApplicationBuilder().token(TOKEN).build()
     
-    job_queue = app.job_queue
-    if job_queue:
-        # Jalankan setiap 60 detik (1 menit)
-        job_queue.run_repeating(send_price_update, interval=60, first=5)
-        logging.info("JobQueue diaktifkan (Interval: 1 Menit).")
-    else:
-        logging.error("JobQueue TIDAK AKTIF! Pastikan requirements.txt berisi 'python-telegram-bot[job-queue]'")
+    # Jalankan scheduler internal 1 menit
+    if app.job_queue:
+        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
