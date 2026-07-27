@@ -1,59 +1,151 @@
 import os
-import re
+import logging
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Membaca token dari GitHub Secrets
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxDA8f6N46XqmonJgIN-w-Zz-ZekarLjW1MI6F-UwbyNQ9npPInLQGYcOHaC8PyssSY/exec"
+# Setup Logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+# Mapping simbol Crypto ke ID CoinGecko
+CRYPTO_MAP = {
+    'btc': 'bitcoin',
+    'eth': 'ethereum',
+    'sol': 'solana',
+    'doge': 'dogecoin',
+    'bnb': 'binancecoin',
+    'xrp': 'ripple',
+    'ada': 'cardano',
+    'usdt': 'tether',
+    'dot': 'polkadot',
+    'ltc': 'litecoin',
+    'link': 'chainlink'
+}
+
+def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
+    """Mengambil harga Crypto dari CoinGecko API (Bisa target Fiat atau Crypto lain)"""
+    crypto_id = CRYPTO_MAP.get(crypto_symbol.lower())
+    target_id = CRYPTO_MAP.get(target_currency.lower())
+    
+    if not crypto_id:
+        return None
+    
+    # Jika targetnya juga Crypto (misal: USDT to SOL)
+    if target_id:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id},{target_id}&vs_currencies=usd"
+        try:
+            res = requests.get(url, timeout=10).json()
+            price_from_usd = res.get(crypto_id, {}).get("usd")
+            price_to_usd = res.get(target_id, {}).get("usd")
+            if price_from_usd and price_to_usd:
+                return price_from_usd / price_to_usd
+        except Exception as e:
+            logging.error(f"Error Crypto-to-Crypto: {e}")
+            return None
+    
+    # Jika targetnya Mata Uang Biasa / Fiat (misal: BTC to IDR)
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id}&vs_currencies={target_currency.lower()}"
+    try:
+        res = requests.get(url, timeout=10).json()
+        return res.get(crypto_id, {}).get(target_currency.lower())
+    except Exception as e:
+        logging.error(f"Error Crypto-to-Fiat: {e}")
+        return None
+
+def get_fiat_rate(from_curr: str, to_curr: str) -> float:
+    """Mengambil kurs mata uang biasa (Fiat)"""
+    url = f"https://open.er-api.com/v6/latest/{from_curr.upper()}"
+    try:
+        res = requests.get(url, timeout=10).json()
+        if res.get("result") == "success":
+            return res["rates"].get(to_curr.upper())
+        return None
+    except Exception as e:
+        logging.error(f"Error Fiat rate: {e}")
+        return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Halo! Saya Bot Konversi Mata Uang via Google Finance.\n\n"
-        "Kirim format konversi seperti:\n"
-        "• `20 usd to idr`\n"
-        "• `100 eur to idr`",
-        parse_mode="Markdown"
+        "👋 **Bot Konversi Mata Uang & Crypto**\n\n"
+        "Bisa digunakan untuk berbagai variasi format:\n\n"
+        "💵 **Mata Uang Biasa (Fiat):**\n"
+        "• `10 usd to idr`\n"
+        "• `euro to idr` (otomatis dihitung 1)\n\n"
+        "🪙 **Crypto:**\n"
+        "• `1 usdt to sol` (Crypto ke Crypto)\n"
+        "• `1 btc to idr` (Crypto ke Fiat)"
     )
 
-async def convert_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
-    pattern = r"^([\d\.]+)\s*([a-z]{3})\s+to\s+([a-z]{3})$"
-    match = re.match(pattern, text)
+    parts = text.split()
     
-    if not match:
-        return
-    
-    amount = float(match.group(1))
-    from_curr = match.group(2).upper()
-    to_curr = match.group(3).upper()
-    pair = f"{from_curr}{to_curr}"
-    
-    try:
-        response = requests.get(f"{APPS_SCRIPT_URL}?pair={pair}", timeout=10)
-        if response.status_code == 200:
-            raw_text = response.text.strip().replace(',', '')
-            rate = float(raw_text)
-            result = amount * rate
+    amount = 1.0
+    from_symbol = ""
+    to_symbol = ""
+
+    # Parse input berdasarkan jumlah kata
+    # Kasus 1: "10 usd to idr" atau "1 usdt to sol" (4 kata)
+    if len(parts) == 4 and parts[2] == "to":
+        try:
+            amount = float(parts[0])
+            from_symbol = parts[1]
+            to_symbol = parts[3]
+        except ValueError:
+            await update.message.reply_text("⚠️ Angka tidak valid.")
+            return
             
-            pesan = (
-                f"💵 **Konversi Mata Uang (Google Finance)**\n\n"
-                f"`{amount:,.2f} {from_curr}` = `{result:,.2f} {to_curr}`\n\n"
-                f"*(Kurs 1 {from_curr} = {rate:,.2f} {to_curr})*"
+    # Kasus 2: "euro to idr" atau "btc to usd" (3 kata, tanpa menyebut angka)
+    elif len(parts) == 3 and parts[1] == "to":
+        amount = 1.0
+        from_symbol = parts[0]
+        to_symbol = parts[2]
+    else:
+        await update.message.reply_text(
+            "💡 Contoh penggunaan:\n"
+            "• `10 usd to idr`\n"
+            "• `euro to idr`\n"
+            "• `1 usdt to sol`"
+        )
+        return
+
+    # 1. Cek apakah ini konversi yang melibatkan Crypto
+    if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
+        rate = get_crypto_price(from_symbol, to_symbol)
+        if rate:
+            total = amount * rate
+            formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
+            await update.message.reply_text(
+                f"🪙 **Konversi Crypto**\n\n"
+                f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
             )
-            await update.message.reply_text(pesan, parse_mode="Markdown")
-    except Exception:
-        await update.message.reply_text("⚠️ Terjadi kesalahan saat mengambil data.")
+            return
+
+    # 2. Cek konversi Fiat (Mata Uang Negara biasa)
+    # Kode pendukung jika user mengetik "euro" menggantikan "eur"
+    if from_symbol == "euro": from_symbol = "eur"
+    if to_symbol == "euro": to_symbol = "eur"
+
+    fiat_rate = get_fiat_rate(from_symbol, to_symbol)
+    if fiat_rate:
+        total = amount * fiat_rate
+        await update.message.reply_text(
+            f"💱 **Konversi Mata Uang**\n\n"
+            f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
+        )
+        return
+
+    await update.message.reply_text("❌ Simbol mata uang atau crypto tidak ditemukan.")
 
 if __name__ == '__main__':
     if not TOKEN:
-        print("Error: TELEGRAM_TOKEN tidak ditemukan!")
-        exit(1)
-        
+        raise ValueError("Error: TELEGRAM_TOKEN tidak ditemukan!")
+    
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, convert_currency))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan via GitHub Actions...")
+    print("Bot berjalan...")
     app.run_polling()
