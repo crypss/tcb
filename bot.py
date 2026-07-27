@@ -24,6 +24,21 @@ CRYPTO_MAP = {
     'link': 'chainlink'
 }
 
+# --- INGATAN HARGA SEBELUMNYA ---
+previous_prices = {
+    "btc_usd": None,
+    "sol_usd": None,
+    "xrp_usd": None
+}
+
+def get_trend_emoji(current, previous):
+    if previous is None or current == previous:
+        return "⚪"
+    elif current > previous:
+        return "🟢"
+    else:
+        return "🔴"
+
 # --- API HARGA CRYPTO & FIAT ---
 def get_multiple_prices():
     url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,solana,ripple&vs_currencies=usd,idr"
@@ -74,6 +89,8 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
 
 # --- JOB PERIODIK (TIAP 1 MENIT) ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
+    global previous_prices
+    
     data = get_multiple_prices()
     if data:
         btc_usd = data.get("bitcoin", {}).get("usd", 0)
@@ -83,22 +100,31 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         xrp_usd = data.get("ripple", {}).get("usd", 0)
         xrp_idr = data.get("ripple", {}).get("idr", 0)
 
+        # Menentukan tren naik/turun
+        btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
+        sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
+        xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
+
+        # Update ingatan harga untuk menit berikutnya
+        previous_prices["btc_usd"] = btc_usd
+        previous_prices["sol_usd"] = sol_usd
+        previous_prices["xrp_usd"] = xrp_usd
+
         msg = (
             "📊 **UPDATE HARGA CRYPTO (Tiap 1 Menit)**\n\n"
-            f"🪙 **Bitcoin (BTC):**\n"
+            f"🪙 **Bitcoin (BTC)** {btc_trend}\n"
             f"• ${btc_usd:,.2f} USD\n"
             f"• Rp {btc_idr:,.0f} IDR\n\n"
-            f"🪙 **Solana (SOL):**\n"
+            f"🪙 **Solana (SOL)** {sol_trend}\n"
             f"• ${sol_usd:,.2f} USD\n"
             f"• Rp {sol_idr:,.0f} IDR\n\n"
-            f"🪙 **Ripple (XRP):**\n"
+            f"🪙 **Ripple (XRP)** {xrp_trend}\n"
             f"• ${xrp_usd:,.4f} USD\n"
             f"• Rp {xrp_idr:,.0f} IDR"
         )
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="Markdown")
-            logging.info("Update harga berhasil dikirim!")
         except Exception as e:
             logging.error(f"Gagal mengirim pesan: {e}")
 
@@ -108,8 +134,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **Bot Konversi & Tracker Crypto Active**\n\n"
         "• Update BTC, SOL, XRP dikirim otomatis setiap **1 menit**.\n\n"
         "💡 **Cara Konversi Manual:**\n"
-        "• Mata Uang Fiat: `10 usd to idr`, `50000 idr to myr`, `100 eur to usd`\n"
-        "• Crypto: `1 btc to usd`, `0.5 sol to idr`, `100 xrp to usdt`"
+        "• Fiat: `10 usd to idr`, `50000 idr to myr`\n"
+        "• Crypto: `1 btc to usd`, `2 sol to idr`"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,7 +146,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from_symbol = ""
     to_symbol = ""
 
-    # Parse format "10 usd to idr" atau "usd to idr"
     if len(parts) == 4 and parts[2] == "to":
         try:
             amount = float(parts[0])
@@ -136,11 +161,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    # Normalisasi nama mata uang/koin
     if from_symbol == "euro": from_symbol = "eur"
     if to_symbol == "euro": to_symbol = "eur"
 
-    # Cek jika ada komponen Crypto
     if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
         rate = get_crypto_price(from_symbol, to_symbol)
         if rate:
@@ -152,7 +175,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Cek Konversi Mata Uang Fiat (USD, IDR, EUR, MYR, JPY, dll)
     fiat_rate = get_fiat_rate(from_symbol, to_symbol)
     if fiat_rate:
         total = amount * fiat_rate
@@ -170,12 +192,11 @@ if __name__ == '__main__':
     
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # Jalankan scheduler internal 1 menit
     if app.job_queue:
         app.job_queue.run_repeating(send_price_update, interval=60, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan...")
+    print("Bot berjalan dengan indikator trend...")
     app.run_polling()
