@@ -111,16 +111,9 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         previous_prices["xrp_usd"] = xrp_usd
 
         msg = (
-            "📊 **UPDATE HARGA CRYPTO**\n\n"
-            f"{btc_trend} Bitcoin (BTC)\n"
-            f"• ${btc_usd:,.2f} USD\n"
-            f"• Rp {btc_idr:,.0f} IDR\n\n"
-            f"{sol_trend} Solana (SOL)\n"
-            f"• ${sol_usd:,.2f} USD\n"
-            f"• Rp {sol_idr:,.0f} IDR\n\n"
-            f"{xrp_trend} Ripple (XRP)\n"
-            f"• ${xrp_usd:,.4f} USD\n"
-            f"• Rp {xrp_idr:,.0f} IDR"
+            f"{btc_trend} $btc = ${btc_usd:,.2f}\n"
+            f"{sol_trend} $sol = ${sol_usd:,.2f}\n"
+            f"{xrp_trend} $xrp = ${xrp_usd:,.4f}\n"
         )
         
         try:
@@ -170,8 +163,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total = amount * rate
             formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
             await update.message.reply_text(
-                f"🪙 **Hasil Konversi Crypto**\n\n"
-                f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
+                f"{amount:g} {from_symbol.upper()} = {formatted_total} {to_symbol.upper()}"
             )
             return
 
@@ -179,8 +171,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fiat_rate:
         total = amount * fiat_rate
         await update.message.reply_text(
-            f"💱 **Hasil Konversi Mata Uang**\n\n"
-            f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
+            f"{amount:g} {from_symbol.upper()} = {total:,.2f} {to_symbol.upper()}"
         )
         return
 
