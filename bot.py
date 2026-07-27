@@ -118,8 +118,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total = amount * rate
             formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
             await update.message.reply_text(
-                f"🪙 **Konversi Crypto**\n\n"
-                f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
+                f"🪙 Konversi Crypto\n\n"
+                f"{amount:g} {from_symbol.upper()} = {formatted_total} {to_symbol.upper()}"
             )
             return
 
@@ -132,8 +132,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fiat_rate:
         total = amount * fiat_rate
         await update.message.reply_text(
-            f"💱 **Konversi Mata Uang**\n\n"
-            f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
+            f"💱 Konversi Mata Uang\n\n"
+            f"{amount:g} {from_symbol.upper()} = {total:,.2f} {to_symbol.upper()}"
         )
         return
 
