@@ -1,7 +1,6 @@
 import os
 import logging
 import requests
-import subprocess
 from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -9,7 +8,10 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-FILE_PATH = "id.txt"
+
+# ⚠️ MASUKKAN CHAT ID KAMU DI SINI (Ganti 123456789 dengan ID asli kamu)
+# Jika ada lebih dari satu chat, pisahkan dengan koma: {123456789, 987654321}
+TARGET_CHAT_IDS = {978089424}
 
 # Mapping simbol Crypto ke ID CoinGecko
 CRYPTO_MAP = {
@@ -26,69 +28,15 @@ CRYPTO_MAP = {
     'link': 'chainlink'
 }
 
-# --- FUNGSI BACA & TULIS ID.TXT ---
-def load_chat_ids() -> set:
-    """Membaca daftar Chat ID dari file id.txt"""
-    if not os.path.exists(FILE_PATH):
-        return set()
-    with open(FILE_PATH, "r") as f:
-        lines = f.readlines()
-        return {int(line.strip()) for line in lines if line.strip().isdigit()}
-
-def save_and_commit_id(chat_id: int) -> bool:
-    """Menyimpan ID ke id.txt dan melakukan Commit + Push ke GitHub"""
-    chat_ids = load_chat_ids()
-    if chat_id in chat_ids:
-        return False  # Sudah terdaftar
-    
-    chat_ids.add(chat_id)
-    
-    # 1. Tulis ke file id.txt
-    with open(FILE_PATH, "w") as f:
-        for cid in chat_ids:
-            f.write(f"{cid}\n")
-            
-    # 2. Push perubahan ke GitHub secara otomatis
-    try:
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-        subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-        subprocess.run(["git", "add", FILE_PATH], check=True)
-        subprocess.run(["git", "commit", "-m", f"auto-update: add chat_id {chat_id} to id.txt"], check=True)
-        subprocess.run(["git", "push"], check=True)
-        logging.info("Berhasil melakukan commit id.txt ke GitHub!")
-    except Exception as e:
-        logging.error(f"Gagal push id.txt ke GitHub: {e}")
-        
-    return True
-
-def remove_and_commit_id(chat_id: int):
-    """Menghapus ID dari id.txt dan Commit + Push ke GitHub"""
-    chat_ids = load_chat_ids()
-    if chat_id not in chat_ids:
-        return
-    
-    chat_ids.remove(chat_id)
-    with open(FILE_PATH, "w") as f:
-        for cid in chat_ids:
-            f.write(f"{cid}\n")
-            
-    try:
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-        subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-        subprocess.run(["git", "add", FILE_PATH], check=True)
-        subprocess.run(["git", "commit", "-m", f"auto-update: remove chat_id {chat_id} from id.txt"], check=True)
-        subprocess.run(["git", "push"], check=True)
-    except Exception as e:
-        logging.error(f"Gagal push id.txt ke GitHub: {e}")
-
-# --- FUNGSI HARGA & BOT ---
 def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
+    """Mengambil harga Crypto dari CoinGecko API"""
     crypto_id = CRYPTO_MAP.get(crypto_symbol.lower())
     target_id = CRYPTO_MAP.get(target_currency.lower())
     
     if not crypto_id:
         return None
     
+    # 1. Crypto ke Crypto
     if target_id:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id},{target_id}&vs_currencies=usd"
         try:
@@ -101,6 +49,7 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
             logging.error(f"Error Crypto-to-Crypto: {e}")
             return None
     
+    # 2. Crypto ke Fiat
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id}&vs_currencies={target_currency.lower()}"
     try:
         res = requests.get(url, timeout=10).json()
@@ -110,6 +59,7 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
         return None
 
 def get_fiat_rate(from_curr: str, to_curr: str) -> float:
+    """Mengambil kurs mata uang biasa (Fiat)"""
     url = f"https://open.er-api.com/v6/latest/{from_curr.upper()}"
     try:
         res = requests.get(url, timeout=10).json()
@@ -120,7 +70,9 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
         logging.error(f"Error Fiat rate: {e}")
         return None
 
+# --- FUNGSI SETTING MENU BOT ---
 async def post_init(application):
+    """Mendaftarkan menu tombol [/] ke aplikasi Telegram"""
     commands = [
         BotCommand("start", "Mulai bot & petunjuk penggunaan"),
         BotCommand("subscribe", "Aktifkan update harga BTC, SOL, XRP tiap 5 menit"),
@@ -128,16 +80,18 @@ async def post_init(application):
     ]
     await application.bot.set_my_commands(commands)
 
-# --- JOB MONITORING HARGA (TIAP 5 MENIT) ---
+# --- FUNGSI JOB AUTO NOTIFIKASI (TIAP 5 MENIT) ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
-    chat_ids = load_chat_ids()
-    if not chat_ids:
+    """Fungsi ini dipanggil otomatis setiap 300 detik (5 menit)"""
+    if not TARGET_CHAT_IDS:
         return
 
     btc_usd = get_crypto_price("btc", "usd")
     btc_idr = get_crypto_price("btc", "idr")
+
     sol_usd = get_crypto_price("sol", "usd")
     sol_idr = get_crypto_price("sol", "idr")
+
     xrp_usd = get_crypto_price("xrp", "usd")
     xrp_idr = get_crypto_price("xrp", "idr")
 
@@ -155,33 +109,32 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
             f"• Rp {xrp_idr:,.0f} IDR"
         )
         
-        for chat_id in chat_ids:
+        for chat_id in TARGET_CHAT_IDS:
             try:
                 await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
             except Exception as e:
                 logging.error(f"Gagal mengirim pesan ke {chat_id}: {e}")
 
-# --- HANDLER UTAMA ---
+# --- COMMAND HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 **Bot Konversi & Tracker Crypto**\n\n"
-        "• Ketik /subscribe untuk menyimpan ID kamu ke `id.txt` dan menerima update tiap 5 menit.\n"
-        "• Ketik /unsubscribe untuk berhenti."
+        "• Update harga **BTC, SOL, dan XRP** dikirim otomatis **setiap 5 menit**.\n\n"
+        "💡 **Konversi manual:**\n"
+        "• `10 usd to idr`\n"
+        "• `1 xrp to usdt`\n"
+        "• `sol to idr`"
     )
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    is_new = save_and_commit_id(chat_id)
-    
-    if is_new:
-        await update.message.reply_text(f"✅ **Berhasil!** Chat ID `{chat_id}` telah tersimpan ke dalam file `id.txt` di repository GitHub kamu.")
-    else:
-        await update.message.reply_text("ℹ️ Chat ID kamu sudah ada di dalam daftar `id.txt`.")
+    TARGET_CHAT_IDS.add(chat_id)
+    await update.message.reply_text("✅ Chat ID kamu aktif untuk menerima update harga otomatis!")
 
 async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    remove_and_commit_id(chat_id)
-    await update.message.reply_text("🔕 Chat ID kamu telah dihapus dari file `id.txt`.")
+    TARGET_CHAT_IDS.discard(chat_id)
+    await update.message.reply_text("🔕 Notifikasi otomatis dimatikan.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
@@ -206,23 +159,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
+    if from_symbol == "euro": from_symbol = "eur"
+    if to_symbol == "euro": to_symbol = "eur"
+
+    # Cek Crypto
     if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
         rate = get_crypto_price(from_symbol, to_symbol)
         if rate:
             total = amount * rate
             formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
             await update.message.reply_text(
-                f"🪙 **Konversi Crypto**\n\n"
-                f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
+                f"🪙 Konversi Crypto\n\n"
+                f"{amount:g} {from_symbol.upper()} = {formatted_total} {to_symbol.upper()}"
             )
             return
 
+    # Cek Fiat
     fiat_rate = get_fiat_rate(from_symbol, to_symbol)
     if fiat_rate:
         total = amount * fiat_rate
         await update.message.reply_text(
-            f"💱 **Konversi Mata Uang**\n\n"
-            f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
+            f"💱 Konversi Mata Uang\n\n"
+            f"{amount:g} {from_symbol.upper()} = {total:,.2f} {to_symbol.upper()}"
         )
         return
 
@@ -232,6 +190,7 @@ if __name__ == '__main__':
     
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
+    # Pemicu kirim pesan otomatis tiap 300 detik (5 menit)
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_repeating(send_price_update, interval=300, first=10)
