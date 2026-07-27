@@ -9,7 +9,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# ⚠️ GANTI ANGKA DI BAWAH DENGAN CHAT ID TELEGRAM KAMU (TANPA TANDA PETIK)
+# Chat ID tujuan notifikasi otomatis
 TARGET_CHAT_IDS = {978089424}
 
 CRYPTO_MAP = {
@@ -33,6 +33,7 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
     if not crypto_id:
         return None
     
+    # 1. Crypto ke Crypto
     if target_id:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id},{target_id}&vs_currencies=usd"
         try:
@@ -45,6 +46,7 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
             logging.error(f"Error Crypto-to-Crypto: {e}")
             return None
     
+    # 2. Crypto ke Fiat
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id}&vs_currencies={target_currency.lower()}"
     try:
         res = requests.get(url, timeout=10).json()
@@ -72,9 +74,9 @@ async def post_init(application):
     ]
     await application.bot.set_my_commands(commands)
 
-# --- FUNGSI JOB AUTO NOTIFIKASI ---
+# --- FUNGSI JOB AUTO NOTIFIKASI (TIAP 5 MENIT) ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
-    logging.info("Memulai proses pengiriman update harga harian/berkala...")
+    logging.info("Memulai proses pengiriman update harga berkala...")
     if not TARGET_CHAT_IDS:
         logging.warning("TARGET_CHAT_IDS kosong, tidak ada tujuan pengiriman.")
         return
@@ -109,12 +111,77 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     else:
         logging.error("Gagal mengambil salah satu atau seluruh harga crypto dari API.")
 
+# --- COMMAND HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Bot siap digunakan!")
+    await update.message.reply_text(
+        "👋 **Bot Konversi & Tracker Crypto**\n\n"
+        "• Update harga **BTC, SOL, dan XRP** dikirim otomatis **setiap 5 menit**.\n\n"
+        "💡 **Cara Konversi:**\n"
+        "• `10 usd to idr`\n"
+        "• `1 xrp to usdt`\n"
+        "• `sol to idr`"
+    )
 
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    TARGET_CHAT_IDS.add(chat_id)
+    await update.message.reply_text("✅ Chat ID kamu aktif untuk menerima update harga otomatis!")
+
+async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    TARGET_CHAT_IDS.discard(chat_id)
+    await update.message.reply_text("🔕 Notifikasi otomatis dimatikan.")
+
+# --- FUNGSI HANDELLER PESAN (LOGIKA KONVERSI) ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Logika penanganan pesan biasa (konversi)
-    pass
+    text = update.message.text.strip().lower()
+    parts = text.split()
+    
+    amount = 1.0
+    from_symbol = ""
+    to_symbol = ""
+
+    # Format: "10 usd to idr"
+    if len(parts) == 4 and parts[2] == "to":
+        try:
+            amount = float(parts[0])
+            from_symbol = parts[1]
+            to_symbol = parts[3]
+        except ValueError:
+            await update.message.reply_text("⚠️ Angka tidak valid.")
+            return
+    # Format: "usd to idr" (default jumlah 1.0)
+    elif len(parts) == 3 and parts[1] == "to":
+        amount = 1.0
+        from_symbol = parts[0]
+        to_symbol = parts[2]
+    else:
+        return
+
+    if from_symbol == "euro": from_symbol = "eur"
+    if to_symbol == "euro": to_symbol = "eur"
+
+    # 1. Cek & Proses Crypto
+    if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
+        rate = get_crypto_price(from_symbol, to_symbol)
+        if rate:
+            total = amount * rate
+            formatted_total = f"{total:,.2f}" if total >= 1 else f"{total:.6f}"
+            await update.message.reply_text(
+                f"🪙 **Konversi Crypto**\n\n"
+                f"{amount:g} {from_symbol.upper()} = **{formatted_total} {to_symbol.upper()}**"
+            )
+            return
+
+    # 2. Cek & Proses Fiat (Mata Uang Biasa)
+    fiat_rate = get_fiat_rate(from_symbol, to_symbol)
+    if fiat_rate:
+        total = amount * fiat_rate
+        await update.message.reply_text(
+            f"💱 **Konversi Mata Uang**\n\n"
+            f"{amount:g} {from_symbol.upper()} = **{total:,.2f} {to_symbol.upper()}**"
+        )
+        return
 
 if __name__ == '__main__':
     if not TOKEN:
@@ -124,13 +191,15 @@ if __name__ == '__main__':
     
     job_queue = app.job_queue
     if job_queue:
-        # Jalankan pertama kali 5 detik setelah start, lalu ulangi tiap 300 detik (5 menit)
+        # Jalankan pertama kali 5 detik setelah start, lalu ulangi tiap 300 detik
         job_queue.run_repeating(send_price_update, interval=300, first=5)
         logging.info("JobQueue berhasil diaktifkan.")
     else:
         logging.error("JobQueue TIDAK AKTIF! Pastikan terinstall via 'python-telegram-bot[job-queue]'")
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("subscribe", subscribe))
+    app.add_handler(CommandHandler("unsubscribe", unsubscribe))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("Bot berjalan...")
