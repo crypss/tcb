@@ -111,14 +111,14 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         previous_prices["xrp_usd"] = xrp_usd
 
         msg = (
-            "📊 **UPDATE HARGA CRYPTO (Tiap 1 Menit)**\n\n"
-            f"🪙 **Bitcoin (BTC)** {btc_trend}\n"
+            "📊 **UPDATE HARGA CRYPTO**\n\n"
+            f"{btc_trend} Bitcoin (BTC)\n"
             f"• ${btc_usd:,.2f} USD\n"
             f"• Rp {btc_idr:,.0f} IDR\n\n"
-            f"🪙 **Solana (SOL)** {sol_trend}\n"
+            f"{sol_trend} Solana (SOL)\n"
             f"• ${sol_usd:,.2f} USD\n"
             f"• Rp {sol_idr:,.0f} IDR\n\n"
-            f"🪙 **Ripple (XRP)** {xrp_trend}\n"
+            f"{xrp_trend} Ripple (XRP)\n"
             f"• ${xrp_usd:,.4f} USD\n"
             f"• Rp {xrp_idr:,.0f} IDR"
         )
@@ -193,7 +193,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=300, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
