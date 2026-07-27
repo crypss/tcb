@@ -1,16 +1,20 @@
 import os
 import logging
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, BotCommand
+from telegram.ext import (
+    ApplicationBuilder, 
+    CommandHandler, 
+    MessageHandler, 
+    filters, 
+    ContextTypes,
+    PicklePersistence
+)
 
 # Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-# ID Chat tempat harga otomatis akan dikirim
-TARGET_CHAT_IDS = set()
 
 # Mapping simbol Crypto ke ID CoinGecko
 CRYPTO_MAP = {
@@ -35,7 +39,6 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
     if not crypto_id:
         return None
     
-    # 1. Crypto ke Crypto
     if target_id:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id},{target_id}&vs_currencies=usd"
         try:
@@ -48,7 +51,6 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
             logging.error(f"Error Crypto-to-Crypto: {e}")
             return None
     
-    # 2. Crypto ke Fiat
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id}&vs_currencies={target_currency.lower()}"
     try:
         res = requests.get(url, timeout=10).json()
@@ -69,21 +71,28 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
         logging.error(f"Error Fiat rate: {e}")
         return None
 
+# --- FUNGSI SETTING MENU BOT ---
+async def post_init(application):
+    commands = [
+        BotCommand("start", "Mulai bot & petunjuk penggunaan"),
+        BotCommand("subscribe", "Aktifkan update harga BTC, SOL, XRP tiap 5 menit"),
+        BotCommand("unsubscribe", "Matikan update harga otomatis"),
+    ]
+    await application.bot.set_my_commands(commands)
+
 # --- FUNGSI JOB AUTO NOTIFIKASI (TIAP 5 MENIT) ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
-    """Fungsi ini dipanggil otomatis setiap 300 detik (5 menit)"""
-    if not TARGET_CHAT_IDS:
+    # Mengambil daftar subscriber dari bot_data yang tersimpan permanen
+    subscribers = context.bot_data.get("subscribers", set())
+    if not subscribers:
         return
 
-    # Ambil harga BTC
     btc_usd = get_crypto_price("btc", "usd")
     btc_idr = get_crypto_price("btc", "idr")
 
-    # Ambil harga SOL
     sol_usd = get_crypto_price("sol", "usd")
     sol_idr = get_crypto_price("sol", "idr")
 
-    # Ambil harga XRP
     xrp_usd = get_crypto_price("xrp", "usd")
     xrp_idr = get_crypto_price("xrp", "idr")
 
@@ -101,7 +110,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
             f"• Rp {xrp_idr:,.0f} IDR"
         )
         
-        for chat_id in TARGET_CHAT_IDS:
+        for chat_id in list(subscribers):
             try:
                 await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
             except Exception as e:
@@ -111,23 +120,28 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 **Bot Konversi & Tracker Crypto**\n\n"
-        "• Ketik `/subscribe` untuk menerima update harga **BTC, SOL, dan XRP** otomatis **setiap 5 menit**.\n"
-        "• Ketik `/unsubscribe` untuk berhenti.\n\n"
-        "💡 **Konversi manual:**\n"
-        "• `10 usd to idr`\n"
-        "• `1 xrp to usdt`\n"
-        "• `sol to idr`"
+        "• Ketik /subscribe untuk menerima update harga otomatis tiap 5 menit.\n"
+        "• Ketik /unsubscribe untuk berhenti."
     )
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    TARGET_CHAT_IDS.add(chat_id)
-    await update.message.reply_text("✅ **Berhasil!** Kamu akan menerima update harga BTC, SOL, dan XRP setiap 5 menit sekali.")
+    
+    # Simpan ID secara permanen ke context.bot_data
+    if "subscribers" not in context.bot_data:
+        context.bot_data["subscribers"] = set()
+    
+    context.bot_data["subscribers"].add(chat_id)
+    
+    await update.message.reply_text("✅ **Berhasil!** Chat ID kamu sudah tersimpan di database bot. Kamu akan menerima update harga otomatis setiap 5 menit.")
 
 async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    TARGET_CHAT_IDS.discard(chat_id)
-    await update.message.reply_text("🔕 Notifikasi otomatis 5 menit telah dimatikan.")
+    
+    if "subscribers" in context.bot_data:
+        context.bot_data["subscribers"].discard(chat_id)
+        
+    await update.message.reply_text("🔕 Notifikasi otomatis dimatikan. Chat ID kamu telah dihapus dari daftar.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
@@ -152,10 +166,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    if from_symbol == "euro": from_symbol = "eur"
-    if to_symbol == "euro": to_symbol = "eur"
-
-    # Cek Crypto
     if from_symbol in CRYPTO_MAP or to_symbol in CRYPTO_MAP:
         rate = get_crypto_price(from_symbol, to_symbol)
         if rate:
@@ -167,7 +177,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Cek Fiat
     fiat_rate = get_fiat_rate(from_symbol, to_symbol)
     if fiat_rate:
         total = amount * fiat_rate
@@ -181,9 +190,11 @@ if __name__ == '__main__':
     if not TOKEN:
         raise ValueError("Error: TELEGRAM_TOKEN tidak ditemukan!")
     
-    app = ApplicationBuilder().token(TOKEN).build()
+    # Menyiapkan penyimpanan lokal bernama 'bot_data.pickle'
+    persistence = PicklePersistence(filepath="bot_data.pickle")
     
-    # Menambahkan pemicu kirim pesan otomatis tiap 300 detik (5 menit)
+    app = ApplicationBuilder().token(TOKEN).persistence(persistence).post_init(post_init).build()
+    
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_repeating(send_price_update, interval=300, first=10)
