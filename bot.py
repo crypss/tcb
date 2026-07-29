@@ -32,12 +32,17 @@ previous_prices = {
 }
 
 def get_trend_emoji(current, previous):
+    # ID Custom Animated Emoji milikmu
+    EMOJI_BULLISH = '<tg-emoji emoji-id="5449683594425410231">🟢</tg-emoji>'
+    EMOJI_BEARISH = '<tg-emoji emoji-id="5447183459602669338">🔴</tg-emoji>'
+
+    # Jika ini pengecekan pertama atau harga tetap, kembalikan None (di-skip)
     if previous is None or current == previous:
-        return "⚪"
+        return None
     elif current > previous:
-        return "🟢"
+        return EMOJI_BULLISH
     else:
-        return "🔴"
+        return EMOJI_BEARISH
 
 # --- API HARGA CRYPTO & FIAT ---
 def get_multiple_prices():
@@ -87,48 +92,55 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
         logging.error(f"Error Fiat rate: {e}")
     return None
 
-# --- JOB PERIODIK (TIAP 1 MENIT) ---
+# --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     global previous_prices
     
     data = get_multiple_prices()
     if data:
         btc_usd = data.get("bitcoin", {}).get("usd", 0)
-        btc_idr = data.get("bitcoin", {}).get("idr", 0)
         sol_usd = data.get("solana", {}).get("usd", 0)
-        sol_idr = data.get("solana", {}).get("idr", 0)
         xrp_usd = data.get("ripple", {}).get("usd", 0)
-        xrp_idr = data.get("ripple", {}).get("idr", 0)
 
         # Menentukan tren naik/turun
         btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
         sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
         xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
 
-        # Update ingatan harga untuk menit berikutnya
+        # Update ingatan harga untuk pengecekan berikutnya
         previous_prices["btc_usd"] = btc_usd
         previous_prices["sol_usd"] = sol_usd
         previous_prices["xrp_usd"] = xrp_usd
 
-        msg = (
-            f"{btc_trend} $btc = ${btc_usd:,.2f}\n"
-            f"{sol_trend} $sol = ${sol_usd:,.2f}\n"
-            f"{xrp_trend} $xrp = ${xrp_usd:,.4f}\n"
-        )
-        
-        try:
-            await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Gagal mengirim pesan: {e}")
+        # Menyusun pesan hanya untuk koin yang harganya berubah
+        lines = []
+        if btc_trend:
+            lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}")
+        if sol_trend:
+            lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
+        if xrp_trend:
+            lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
+
+        # Jika ada perubahan harga, kirim pesan
+        if lines:
+            msg = "\n".join(lines)
+            try:
+                # Menggunakan parse_mode="HTML" agar custom emoji animasi dapat dirender
+                await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
+            except Exception as e:
+                logging.error(f"Gagal mengirim pesan: {e}")
+        else:
+            logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
 
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 **Bot Konversi & Tracker Crypto Active**\n\n"
-        "• Update BTC, SOL, XRP dikirim otomatis setiap **1 menit**.\n\n"
-        "💡 **Cara Konversi Manual:**\n"
-        "• Fiat: `10 usd to idr`, `50000 idr to myr`\n"
-        "• Crypto: `1 btc to usd`, `2 sol to idr`"
+        "👋 <b>Bot Konversi & Tracker Crypto Active</b>\n\n"
+        "• Update BTC, SOL, XRP dikirim otomatis jika ada pergerakan harga.\n\n"
+        "💡 <b>Cara Konversi Manual:</b>\n"
+        "• Fiat: <code>10 usd to idr</code>, <code>50000 idr to myr</code>\n"
+        "• Crypto: <code>1 btc to usd</code>, <code>2 sol to idr</code>",
+        parse_mode="HTML"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,10 +196,11 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
+        # Menjalankan job periodik setiap 300 detik (5 menit)
         app.job_queue.run_repeating(send_price_update, interval=300, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan indikator trend...")
+    print("Bot berjalan dengan indikator trend custom emoji...")
     app.run_polling()
