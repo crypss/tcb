@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-TARGET_CHAT_ID = 978089424
+TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
 
 CRYPTO_MAP = {
     'btc': 'bitcoin',
