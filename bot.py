@@ -33,8 +33,8 @@ previous_prices = {
 
 def get_trend_emoji(current, previous):
     # ID Custom Animated Emoji milikmu
-    EMOJI_BULLISH = '<tg-emoji emoji-id="5449683594425410231">🟢</tg-emoji>'
-    EMOJI_BEARISH = '<tg-emoji emoji-id="5447183459602669338">🔴</tg-emoji>'
+    EMOJI_BULLISH = '🟢'
+    EMOJI_BEARISH = '🔴'
 
     # Jika ini pengecekan pertama atau harga tetap, kembalikan None (di-skip)
     if previous is None or current == previous:
@@ -197,7 +197,7 @@ if __name__ == '__main__':
     
     if app.job_queue:
         # Menjalankan job periodik setiap 300 detik (5 menit)
-        app.job_queue.run_repeating(send_price_update, interval=300, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
