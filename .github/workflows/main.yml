@@ -1,4 +1,4 @@
-Name: Telegram Bot Runner
+name: Telegram Bot Runner
 
 on:
   push:
