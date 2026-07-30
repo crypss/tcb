@@ -1,4 +1,4 @@
-name: Telegram Bot Runner
+Name: Telegram Bot Runner
 
 on:
   push:
@@ -7,6 +7,12 @@ on:
     # Otomatis trigger ulang setiap 5 jam (mencegah limit 6 jam GitHub)
     - cron: '0 */5 * * *'
   workflow_dispatch: # Memungkinkan tombol "Run workflow" manual
+
+# === TAMBAHKAN KODE INI UNTUK MENCEGAH MENUMPUK ===
+concurrency:
+  group: telegram-bot-runner
+  cancel-in-progress: true
+# ==================================================
 
 jobs:
   run-bot:
