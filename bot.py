@@ -125,15 +125,19 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
 
     # Jika ada perubahan harga, kirim pesan
+        # Jika ada perubahan harga, kirim pesan
     if lines:
-        msg = "\n\n".join(lines)
+        # Menggabungkan list harga ditambah teks keterangan di bawahnya
+        price_text = "\n\n".join(lines)
+        msg = f"{price_text}\nprices update by coingecko"
+        
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Gagal mengirim pesan: {e}")
     else:
         logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
-
+        
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
