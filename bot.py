@@ -116,20 +116,20 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     # Menyusun pesan per baris koin
     lines = []
     if btc_trend:
-        lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}")
+        lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
         
     if sol_trend:
-        lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
+        lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
         
     if xrp_trend:
-        lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
+        lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
 
     # Jika ada perubahan harga, kirim pesan
         # Jika ada perubahan harga, kirim pesan
     if lines:
         # Menggabungkan list harga ditambah teks keterangan di bawahnya
-        price_text = "\n\n".join(lines)
-        msg = f"{price_text}\nprices update by coingecko"
+        price_text = "\n".join(lines)
+        msg = f"{price_text}\nreal time prices update by coingecko."
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
