@@ -53,6 +53,22 @@ def get_multiple_prices():
         logging.error(f"Error Request API CoinGecko: {e}")
     return None
 
+# --- API REALIZED PRICE BTC (CoinMetrics Community API) ---
+def get_btc_realized_price() -> float:
+    url = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=CapRealUSD,SplyCur&limit_per_asset=1"
+    try:
+        response = requests.get(url, timeout=10).json()
+        data = response.get("data", [])
+        if data:
+            latest = data[0]
+            realized_cap = float(latest.get("CapRealUSD", 0))
+            current_supply = float(latest.get("SplyCur", 0))
+            if current_supply > 0:
+                return realized_cap / current_supply
+    except Exception as e:
+        logging.error(f"Error fetching Realized Price: {e}")
+    return None
+
 def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
     crypto_id = CRYPTO_MAP.get(crypto_symbol.lower())
     target_id = CRYPTO_MAP.get(target_currency.lower())
@@ -103,6 +119,9 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
+    # Ambil Realized Price BTC
+    realized_btc = get_btc_realized_price()
+
     # Menentukan tren naik/turun
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
     sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
@@ -113,24 +132,29 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
 
-    # Menyusun pesan hanya untuk koin yang harganya berubah
+    # Menyusun pesan per baris koin
     lines = []
     if btc_trend:
-        lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}")
+        btc_line = f"{btc_trend} $btc = ${btc_usd:,.2f}"
+        if realized_btc:
+            btc_line += f"\n📊 Realized price $btc = ${realized_btc:,.2f} from coinmetrics"
+        lines.append(btc_line)
+        
     if sol_trend:
         lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
+        
     if xrp_trend:
         lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
 
     # Jika ada perubahan harga, kirim pesan
     if lines:
-        msg = "\n".join(lines)
+        msg = "\n\n".join(lines)
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Gagal mengirim pesan: {e}")
     else:
-        logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
+            logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
 
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -204,5 +228,5 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan indikator trend custom emoji...")
+    print("Bot berjalan dengan indikator trend custom emoji dan Realized Price...")
     app.run_polling()
