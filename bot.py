@@ -103,9 +103,6 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
-    # Ambil Realized Price BTC
-    realized_btc = get_btc_realized_price()
-
     # Menentukan tren naik/turun
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
     sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
@@ -116,16 +113,16 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
 
-    # Menyusun pesan per baris koin (Hanya koin yang berubah harganya)
+    # Menyusun pesan per baris koin
     lines = []
     if btc_trend:
-        lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
+        lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}")
         
     if sol_trend:
-        lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
+        lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
         
     if xrp_trend:
-        lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
+        lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
 
     # Jika ada perubahan harga, kirim pesan
     if lines:
@@ -203,10 +200,10 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan indikator trend dan Realized Price khusus BTC...")
+    print("Bot berjalan dengan format harga standar...")
     app.run_polling()
