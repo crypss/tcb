@@ -135,8 +135,10 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     # Menyusun pesan per baris koin (Hanya koin yang berubah harganya)
     lines = []
     if btc_trend:
-        lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}
-            \nRealized price $btc = ${realized_btc:,.2f} from coinmetrics")
+        btc_line = f"""{btc_trend} $btc = ${btc_usd:,.2f}
+        Realized price $btc = ${realized_btc:,.2f} from coinmetrics"""
+        lines.append(btc_line)
+
         
     if sol_trend:
         lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
