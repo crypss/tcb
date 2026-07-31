@@ -132,12 +132,12 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
 
-    # Menyusun pesan per baris koin
+    # Menyusun pesan per baris koin (Hanya koin yang berubah harganya)
     lines = []
     if btc_trend:
         btc_line = f"{btc_trend} $btc = ${btc_usd:,.2f}"
         if realized_btc:
-            btc_line += f"\n📊 Realized price $btc = ${realized_btc:,.2f} from coinmetrics"
+            btc_line += f"\nRealized price $btc = ${realized_btc:,.2f} from coinglass"
         lines.append(btc_line)
         
     if sol_trend:
@@ -154,7 +154,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Gagal mengirim pesan: {e}")
     else:
-            logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
+        logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
 
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -222,11 +222,10 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        # Menjalankan job periodik setiap 900 detik (15 menit)
-        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan indikator trend custom emoji dan Realized Price...")
+    print("Bot berjalan dengan indikator trend dan Realized Price khusus BTC...")
     app.run_polling()
