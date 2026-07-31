@@ -53,22 +53,6 @@ def get_multiple_prices():
         logging.error(f"Error Request API CoinGecko: {e}")
     return None
 
-# --- API REALIZED PRICE BTC (CoinMetrics Community API) ---
-def get_btc_realized_price() -> float:
-    url = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=CapRealUSD,SplyCur&limit_per_asset=1"
-    try:
-        response = requests.get(url, timeout=10).json()
-        data = response.get("data", [])
-        if data:
-            latest = data[0]
-            realized_cap = float(latest.get("CapRealUSD", 0))
-            current_supply = float(latest.get("SplyCur", 0))
-            if current_supply > 0:
-                return realized_cap / current_supply
-    except Exception as e:
-        logging.error(f"Error fetching Realized Price: {e}")
-    return None
-
 def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
     crypto_id = CRYPTO_MAP.get(crypto_symbol.lower())
     target_id = CRYPTO_MAP.get(target_currency.lower())
@@ -135,17 +119,13 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     # Menyusun pesan per baris koin (Hanya koin yang berubah harganya)
     lines = []
     if btc_trend:
-        if realized_btc:
-            btc_line = f"{btc_trend} $btc = ${btc_usd:,.2f}\nRealized price $btc = ${realized_btc:,.2f} from coinmetrics"
-        else:
-            btc_line = f"{btc_trend} $btc = ${btc_usd:,.2f}"
-        lines.append(btc_line)
+        lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
         
     if sol_trend:
-        lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
+        lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
         
     if xrp_trend:
-        lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
+        lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
 
     # Jika ada perubahan harga, kirim pesan
     if lines:
