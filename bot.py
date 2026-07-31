@@ -24,11 +24,6 @@ CRYPTO_MAP = {
     'link': 'chainlink'
 }
 
-# --- ID STIKER YANG DIMINTA ---
-STICKER_BULL = "CAACAgEAAxkBAAEhBYhqaguThFURvTD5DMUvz92PtYbUTgACRgADcVG-MUXQrHf2FeEDPQQ"
-STICKER_BEAR = "CAACAgEAAxkBAAEhBYxqagvc4ymf40pytKfY0-Jt4yfcuAACRQADcVG-MavBKOyGVYvcPQQ"
-STICKER_BULLBEAR = "CAACAgEAAxkBAAEhBZBqagvz6UMiUkMbn4m0lHlyMUpomAACYgADcVG-MWtBqfq5ZZUKPQQ"
-
 # --- INGATAN HARGA SEBELUMNYA ---
 previous_prices = {
     "btc_usd": None,
@@ -36,14 +31,16 @@ previous_prices = {
     "xrp_usd": None
 }
 
-def get_trend_indicator(current, previous):
-    # Mengembalikan string tren: 'bull', 'bear', atau None jika stabil
+def get_trend_emoji(current, previous):
+    EMOJI_BULLISH = '🟢'
+    EMOJI_BEARISH = '🔴'
+
     if previous is None or current == previous:
         return None
     elif current > previous:
-        return 'bull'
+        return EMOJI_BULLISH
     else:
-        return 'bear'
+        return EMOJI_BEARISH
 
 # --- API HARGA CRYPTO & FIAT ---
 def get_multiple_prices():
@@ -98,70 +95,48 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     global previous_prices
     
     data = get_multiple_prices()
-    if data:
-        btc_usd = data.get("bitcoin", {}).get("usd", 0)
-        sol_usd = data.get("solana", {}).get("usd", 0)
-        xrp_usd = data.get("ripple", {}).get("usd", 0)
+    if not data:
+        logging.warning("Gagal mengambil data harga, melewati siklus ini.")
+        return
 
-        # Menentukan tren masing-masing koin
-        btc_trend = get_trend_indicator(btc_usd, previous_prices["btc_usd"])
-        sol_trend = get_trend_indicator(sol_usd, previous_prices["sol_usd"])
-        xrp_trend = get_trend_indicator(xrp_usd, previous_prices["xrp_usd"])
+    btc_usd = data.get("bitcoin", {}).get("usd", 0)
+    sol_usd = data.get("solana", {}).get("usd", 0)
+    xrp_usd = data.get("ripple", {}).get("usd", 0)
 
-        # Update ingatan harga untuk pengecekan berikutnya
-        previous_prices["btc_usd"] = btc_usd
-        previous_prices["sol_usd"] = sol_usd
-        previous_prices["xrp_usd"] = xrp_usd
+    # Menentukan tren naik/turun
+    btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
+    sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
+    xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
 
-        # Menyusun baris teks hanya untuk koin yang berubah
-        lines = []
-        trends_found = []
+    # Update ingatan harga untuk pengecekan berikutnya
+    previous_prices["btc_usd"] = btc_usd
+    previous_prices["sol_usd"] = sol_usd
+    previous_prices["xrp_usd"] = xrp_usd
 
-        if btc_trend:
-            icon = '🟢' if btc_trend == 'bull' else '🔴'
-            lines.append(f"{icon} $btc = ${btc_usd:,.2f}")
-            trends_found.append(btc_trend)
-            
-        if sol_trend:
-            icon = '🟢' if sol_trend == 'bull' else '🔴'
-            lines.append(f"{icon} $sol = ${sol_usd:,.2f}")
-            trends_found.append(sol_trend)
-            
-        if xrp_trend:
-            icon = '🟢' if xrp_trend == 'bull' else '🔴'
-            lines.append(f"{icon} $xrp = ${xrp_usd:,.4f}")
-            trends_found.append(xrp_trend)
+    # Menyusun pesan hanya untuk koin yang harganya berubah
+    lines = []
+    if btc_trend:
+        lines.append(f"{btc_trend} $btc = ${btc_usd:,.2f}")
+    if sol_trend:
+        lines.append(f"{sol_trend} $sol = ${sol_usd:,.2f}")
+    if xrp_trend:
+        lines.append(f"{xrp_trend} $xrp = ${xrp_usd:,.4f}")
 
-        # Jika ada pergerakan harga pada koin manapun
-        if lines:
-            msg = "\n".join(lines)
-            
-            # Menentukan stiker yang akan dikirim di atas pesan harga
-            # Jika semua tren yang aktif adalah 'bull'
-            if all(t == 'bull' for t in trends_found):
-                chosen_sticker = STICKER_BULL
-            # Jika semua tren yang aktif adalah 'bear'
-            elif all(t == 'bear' for t in trends_found):
-                chosen_sticker = STICKER_BEAR
-            # Jika ada campuran (misal ada bull dan bear sekaligus)
-            else:
-                chosen_sticker = STICKER_BULLBEAR
-
-            try:
-                # 1. Kirim stiker terlebih dahulu di bagian atas
-                await context.bot.send_sticker(chat_id=TARGET_CHAT_ID, sticker=chosen_sticker)
-                # 2. Kirim pesan teks daftar harga di bawahnya
-                await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg)
-            except Exception as e:
-                logging.error(f"Gagal mengirim pesan atau stiker: {e}")
-        else:
-            logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
+    # Jika ada perubahan harga, kirim pesan
+    if lines:
+        msg = "\n".join(lines)
+        try:
+            await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Gagal mengirim pesan: {e}")
+    else:
+        logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
 
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 <b>Bot Konversi & Tracker Crypto Active</b>\n\n"
-        "• Update BTC, SOL, XRP dikirim otomatis dengan stiker animasi market.\n\n"
+        "• Update BTC, SOL, XRP dikirim otomatis jika ada pergerakan harga.\n\n"
         "💡 <b>Cara Konversi Manual:</b>\n"
         "• Fiat: <code>10 usd to idr</code>, <code>50000 idr to myr</code>\n"
         "• Crypto: <code>1 btc to usd</code>, <code>2 sol to idr</code>",
@@ -217,14 +192,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     if not TOKEN:
         raise ValueError("Error: TELEGRAM_TOKEN belum diatur!")
+    if not TARGET_CHAT_ID:
+        raise ValueError("Error: TARGET_CHAT_ID belum diatur!")
     
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
+        # Menjalankan job periodik setiap 900 detik (15 menit)
         app.job_queue.run_repeating(send_price_update, interval=900, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan fitur pengiriman stiker Bull/Bear/BullBear otomatis...")
+    print("Bot berjalan dengan indikator trend custom emoji...")
     app.run_polling()
