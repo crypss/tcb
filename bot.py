@@ -168,7 +168,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if onchain_data["delta_price"]:
             onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
-        msg = f"{price_text}{onchain_info}\n\n<i>real time prices update by CoinGecko & BGeometrics.</i>"
+        msg = f"{price_text}{onchain_info}\n\n<i>Real time prices update by CoinGecko & BGeometrics.</i>"
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
@@ -241,7 +241,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
