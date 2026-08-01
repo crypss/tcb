@@ -45,7 +45,7 @@ def get_trend_emoji(current, previous):
 
 # --- API HARGA CRYPTO & FIAT ---
 def get_multiple_prices():
-    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,solana,ripple&vs_currencies=usd,idr"
+    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,ripple&vs_currencies=usd,idr"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
