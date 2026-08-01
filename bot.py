@@ -27,6 +27,7 @@ CRYPTO_MAP = {
 # --- INGATAN HARGA SEBELUMNYA ---
 previous_prices = {
     "btc_usd": None,
+    "eth_usd": None,
     "sol_usd": None,
     "xrp_usd": None
 }
@@ -134,16 +135,19 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         return
 
     btc_usd = data.get("bitcoin", {}).get("usd", 0)
+    eth_usd = data.get("ethereum", {}).get("usd", 0)
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
     # Menentukan tren naik/turun
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
+    eth_trend = get_trend_emoji(eth_usd, previous_prices["eth_usd"])
     sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
     xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
 
     # Update ingatan harga
     previous_prices["btc_usd"] = btc_usd
+    previous_prices["eth_usd"] = eth_usd
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
 
@@ -151,6 +155,9 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     lines = []
     if btc_trend:
         lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
+
+    if eth_trend:
+        lines.append(f"{eth_trend} $ETH = ${eth_usd:,.2f}")
         
     if sol_trend:
         lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
