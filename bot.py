@@ -90,11 +90,45 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
         logging.error(f"Error Fiat rate: {e}")
     return None
 
+# --- API BGEOMETRICS ON-CHAIN METRICS ---
+def get_bgeometrics_metrics():
+    """Mengambil Realized Price & Delta Price dari BGeometrics"""
+    base_url = "https://charts.bgeometrics.com/files/"
+    
+    metrics = {
+        "realized_price": None,
+        "delta_price": None
+    }
+    
+    # 1. Fetch Realized Price
+    try:
+        res = requests.get(f"{base_url}realized_price.json", timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if data and len(data) > 0:
+                metrics["realized_price"] = float(data[-1][1])
+    except Exception as e:
+        logging.error(f"Error Request Realized Price: {e}")
+
+    # 2. Fetch Delta Price
+    try:
+        res = requests.get(f"{base_url}delta_cap.json", timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if data and len(data) > 0:
+                metrics["delta_price"] = float(data[-1][1])
+    except Exception as e:
+        logging.error(f"Error Request Delta Price: {e}")
+
+    return metrics
+
 # --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     global previous_prices
     
     data = get_multiple_prices()
+    onchain_data = get_bgeometrics_metrics()
+
     if not data:
         logging.warning("Gagal mengambil data harga, melewati siklus ini.")
         return
@@ -108,7 +142,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
     xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
 
-    # Update ingatan harga untuk pengecekan berikutnya
+    # Update ingatan harga
     previous_prices["btc_usd"] = btc_usd
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
@@ -124,19 +158,22 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     if xrp_trend:
         lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
 
-    # Jika ada perubahan harga, kirim pesan
-        # Jika ada perubahan harga, kirim pesan
     if lines:
-        # Menggabungkan list harga ditambah teks keterangan di bawahnya
         price_text = "\n".join(lines)
-        msg = f"{price_text}\nreal time prices update by coingecko."
+        
+        # Tambahkan informasi On-Chain BGeometrics
+        onchain_info = ""
+        if onchain_data["realized_price"]:
+            onchain_info += f"\n\n📊 <b>BTC Realized Price:</b> ${onchain_data['realized_price']:,.2f}"
+        if onchain_data["delta_price"]:
+            onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
+            
+        msg = f"{price_text}{onchain_info}\n\n<i>real time prices update by CoinGecko & BGeometrics.</i>"
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Gagal mengirim pesan: {e}")
-    else:
-        logging.info("Harga stabil (tidak ada perubahan), pengiriman pesan dilewati.")
         
 # --- HANDLER CONVERSION & COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -204,7 +241,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
