@@ -175,16 +175,16 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         # Tambahkan informasi On-Chain BGeometrics
         onchain_info = ""
         if onchain_data["realized_price"]:
-            onchain_info += f"\n\n📊 <b>BTC Realized Price:</b> ${onchain_data['realized_price']:,.2f}"
+            onchain_info += f"\n\n<b>BTC Realized Price:</b> ${onchain_data['realized_price']:,.2f}"
         if onchain_data["delta_price"]:
-            onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
+            onchain_info += f"\n<b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
         # Tambahkan informasi Kurs Fiat (USD & EUR ke IDR)
         fiat_info = ""
         if usd_idr:
-            fiat_info += f"\n💵 <b>USD:</b> IDR {usd_idr:,.2f}"
+            fiat_info += f"\n<b>USD Price:</b> IDR {usd_idr:,.2f}"
         if eur_idr:
-            fiat_info += f"\n💶 <b>EUR:</b> IDR {eur_idr:,.2f}"
+            fiat_info += f"\n<b>EUR Price:</b> IDR {eur_idr:,.2f}"
             
         msg = f"{price_text}{onchain_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko & BGeometrics.</i>"
         
