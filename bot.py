@@ -129,6 +129,10 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     
     data = get_multiple_prices()
     onchain_data = get_bgeometrics_metrics()
+    
+    # Ambil kurs fiat USD ke IDR dan EUR ke IDR
+    usd_idr = get_fiat_rate("usd", "idr")
+    eur_idr = get_fiat_rate("eur", "idr")
 
     if not data:
         logging.warning("Gagal mengambil data harga, melewati siklus ini.")
@@ -175,7 +179,14 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if onchain_data["delta_price"]:
             onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
-        msg = f"{price_text}{onchain_info}\n\n<i>Real time prices update by CoinGecko & BGeometrics.</i>"
+        # Tambahkan informasi Kurs Fiat (USD & EUR ke IDR)
+        fiat_info = ""
+        if usd_idr:
+            fiat_info += f"\n💵 <b>USD:</b> IDR {usd_idr:,.2f}"
+        if eur_idr:
+            fiat_info += f"\n💶 <b>EUR:</b> IDR {eur_idr:,.2f}"
+            
+        msg = f"{price_text}{onchain_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko & BGeometrics.</i>"
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
