@@ -1,14 +1,14 @@
-name: Telegram Bot Runner
+name: Telegram Price Cron
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # Berjalan setiap 4 jam
-  workflow_dispatch:        # Bisa dijalankan manual
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 230    # Selesai dalam 3 jam 50 menit (sebelum cron berikutnya dipicu)
+    timeout-minutes: 5
 
     steps:
       - name: Checkout Repository
@@ -25,8 +25,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Telegram Bot
+      - name: Run Telegram Update Script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
-        run: python bot.py # Ganti dengan nama file script bot Anda
+        run: python bot.py
+
+      # Simpan file harga terakhir kembali ke GitHub Repository
+      - name: Commit & Push Price History
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add last_prices.json || true
+          git commit -m "Update last prices history [skip ci]" || true
+          git push || true
