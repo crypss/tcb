@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import asyncio
 import requests
@@ -9,6 +10,35 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
+PRICE_FILE = "last_prices.json"
+
+# --- MANAJEMEN PENYIMPANAN HARGA DENGAN FILE ---
+def load_previous_prices():
+    """Membaca harga terakhir dari file JSON lokal"""
+    if os.path.exists(PRICE_FILE):
+        try:
+            with open(PRICE_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Gagal membaca {PRICE_FILE}: {e}")
+    return {"btc_usd": None, "eth_usd": None, "sol_usd": None, "xrp_usd": None}
+
+def save_current_prices(prices):
+    """Menyimpan harga saat ini ke file JSON lokal"""
+    try:
+        with open(PRICE_FILE, "w") as f:
+            json.dump(prices, f)
+    except Exception as e:
+        logging.error(f"Gagal menyimpan ke {PRICE_FILE}: {e}")
+
+def get_trend_emoji(current, previous):
+    """Menentukan tren naik/turun atau None jika harga sama/pertama kali"""
+    if previous is None or current == previous:
+        return None
+    elif current > previous:
+        return '🟢'
+    else:
+        return '🔴'
 
 # --- API HARGA CRYPTO & FIAT ---
 def get_multiple_prices():
@@ -36,7 +66,6 @@ def get_bgeometrics_metrics():
     base_url = "https://charts.bgeometrics.com/files/"
     metrics = {"realized_price": None, "delta_price": None}
     
-    # 1. Fetch Realized Price
     try:
         res = requests.get(f"{base_url}realized_price.json", timeout=10)
         if res.status_code == 200:
@@ -49,7 +78,6 @@ def get_bgeometrics_metrics():
     except Exception as e:
         logging.error(f"Error Request Realized Price: {e}")
 
-    # 2. Fetch Delta Price
     try:
         res = requests.get(f"{base_url}delta_cap.json", timeout=10)
         if res.status_code == 200:
@@ -66,6 +94,7 @@ def get_bgeometrics_metrics():
 
 # --- EKSEKUSI PENGIRIMAN PESAN ---
 async def send_update():
+    prev_prices = load_previous_prices()
     data = get_multiple_prices()
     onchain_data = get_bgeometrics_metrics()
     usd_idr = get_fiat_rate("usd", "idr")
@@ -80,12 +109,35 @@ async def send_update():
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
-    lines = [
-        f"🪙 $BTC = ${btc_usd:,.2f}",
-        f"🪙 $ETH = ${eth_usd:,.2f}",
-        f"🪙 $SOL = ${sol_usd:,.2f}",
-        f"🪙 $XRP = ${xrp_usd:,.4f}"
-    ]
+    # Deteksi Tren Naik / Turun
+    btc_trend = get_trend_emoji(btc_usd, prev_prices.get("btc_usd"))
+    eth_trend = get_trend_emoji(eth_usd, prev_prices.get("eth_usd"))
+    sol_trend = get_trend_emoji(sol_usd, prev_prices.get("sol_usd"))
+    xrp_trend = get_trend_emoji(xrp_usd, prev_prices.get("xrp_usd"))
+
+    # Simpan harga terbaru untuk eksekusi berikutnya
+    save_current_prices({
+        "btc_usd": btc_usd,
+        "eth_usd": eth_usd,
+        "sol_usd": sol_usd,
+        "xrp_usd": xrp_usd
+    })
+
+    # Hanya tampilkan koin yang harganya berubah (memiliki emotikon naik/turun)
+    lines = []
+    if btc_trend:
+        lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
+    if eth_trend:
+        lines.append(f"{eth_trend} $ETH = ${eth_usd:,.2f}")
+    if sol_trend:
+        lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
+    if xrp_trend:
+        lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
+
+    # Jika tidak ada perubahan harga sama sekali, lewati pengiriman pesan
+    if not lines:
+        logging.info("Tidak ada perubahan harga pada BTC, ETH, SOL, maupun XRP. Pesan dilewati.")
+        return
 
     price_text = "\n".join(lines)
     
