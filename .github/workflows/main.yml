@@ -1,12 +1,13 @@
 name: Telegram Price Cron
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 on:
   schedule:
     - cron: '0 */4 * * *'
   workflow_dispatch:
+
+# Memberikan izin akses tulis ke repositori agar git push berhasil
+permissions:
+  contents: write
 
 jobs:
   run-bot:
@@ -37,7 +38,6 @@ jobs:
       - name: Commit & Push Price History
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add last_prices.json || true
-          git commit -m "Update last prices history [skip ci]" || true
-          git push || true
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last_prices.json
+          git diff --staged --quiet || (git commit -m "Update last prices history [skip ci]" && git push)
