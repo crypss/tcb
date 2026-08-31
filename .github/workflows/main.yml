@@ -1,37 +1,31 @@
 name: Telegram Bot Runner
 
 on:
-  push:
-    branches: [ main, master ]
   schedule:
-    # Trigger setiap 4 jam (mencegah delay GitHub melebihi batas 6 jam)
-    - cron: '0 */4 * * *'
-  workflow_dispatch:
+    - cron: '0 */4 * * *'  # Berjalan setiap 4 jam
+  workflow_dispatch:        # Bisa dijalankan manual
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    # Batasi durasi maksimum 270 menit (4.5 jam) agar tidak kena hard kill 6 jam
-    timeout-minutes: 270 
+    timeout-minutes: 230    # Selesai dalam 3 jam 50 menit (sebelum cron berikutnya dipicu)
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: 'pip'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run Telegram Bot
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
-      run: |
-        python bot.py
+      - name: Run Telegram Bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: python bot.py # Ganti dengan nama file script bot Anda
