@@ -93,13 +93,9 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
 
 # --- API BGEOMETRICS ON-CHAIN METRICS ---
 def get_bgeometrics_metrics():
-    """Mengambil Realized Price & Delta Price dari BGeometrics"""
+    """Mengambil Realized Price & Delta Price dari BGeometrics secara aman"""
     base_url = "https://charts.bgeometrics.com/files/"
-    
-    metrics = {
-        "realized_price": None,
-        "delta_price": None
-    }
+    metrics = {"realized_price": None, "delta_price": None}
     
     # 1. Fetch Realized Price
     try:
@@ -107,7 +103,11 @@ def get_bgeometrics_metrics():
         if res.status_code == 200:
             data = res.json()
             if data and len(data) > 0:
-                metrics["realized_price"] = float(data[-1][1])
+                # Cari baris paling akhir yang nilainya tidak None
+                for entry in reversed(data):
+                    if len(entry) > 1 and entry[1] is not None:
+                        metrics["realized_price"] = float(entry[1])
+                        break
     except Exception as e:
         logging.error(f"Error Request Realized Price: {e}")
 
@@ -117,7 +117,11 @@ def get_bgeometrics_metrics():
         if res.status_code == 200:
             data = res.json()
             if data and len(data) > 0:
-                metrics["delta_price"] = float(data[-1][1])
+                # Cari baris paling akhir yang nilainya tidak None
+                for entry in reversed(data):
+                    if len(entry) > 1 and entry[1] is not None:
+                        metrics["delta_price"] = float(entry[1])
+                        break
     except Exception as e:
         logging.error(f"Error Request Delta Price: {e}")
 
