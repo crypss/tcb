@@ -14,7 +14,7 @@ logging.basicConfig(
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
 PRICE_FILE = "last_prices.json"
-INTERVAL_SECONDS = 90
+INTERVAL_SECONDS = 900
 
 
 # --- MANAJEMEN PENYIMPANAN HARGA DENGAN FILE ---
