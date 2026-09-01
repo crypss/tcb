@@ -14,7 +14,7 @@ logging.basicConfig(
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
 PRICE_FILE = "last_prices.json"
-INTERVAL_SECONDS = 15 * 60  # 15 menit = 900 detik
+INTERVAL_SECONDS = 90
 
 
 # --- MANAJEMEN PENYIMPANAN HARGA DENGAN FILE ---
@@ -191,7 +191,7 @@ async def main():
         except Exception as e:
             logging.error(f"Terjadi kesalahan saat mengeksekusi send_update: {e}")
 
-        logging.info(f"Menunggu {INTERVAL_SECONDS // 60} menit untuk eksekusi berikutnya...")
+        logging.info(f"Menunggu {INTERVAL_SECONDS // 1} menit untuk eksekusi berikutnya...")
         await asyncio.sleep(INTERVAL_SECONDS)
 
 
