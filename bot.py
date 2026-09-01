@@ -1,198 +1,116 @@
-import asyncio
-import json
-import logging
 import os
-import httpx
+import requests
+import asyncio
 from telegram import Bot
+from telegram.constants import ParseMode
 
-# Setup Logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# Ambil kredensial dari Environment Variables (GitHub Secrets)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TARGET_CHAT_ID")
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
-PRICE_FILE = "last_prices.json"
-
-
-# --- MANAJEMEN PENYIMPANAN HARGA DENGAN FILE ---
-def load_previous_prices() -> dict:
-    """Membaca harga terakhir dari file JSON lokal"""
-    if os.path.exists(PRICE_FILE):
-        try:
-            with open(PRICE_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logging.error(f"Gagal membaca {PRICE_FILE}: {e}")
-    return {"btc_usd": None, "eth_usd": None, "sol_usd": None, "xrp_usd": None}
-
-
-def save_current_prices(prices: dict) -> None:
-    """Menyimpan harga saat ini ke file JSON lokal"""
+def get_crypto_prices():
+    """Mengambil harga live dan perubahan 24 jam dari CoinGecko"""
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {
+        "ids": "bitcoin,ethereum,solana,ripple",
+        "vs_currencies": "usd",
+        "include_24hr_change": "true"
+    }
     try:
-        with open(PRICE_FILE, "w") as f:
-            json.dump(prices, f, indent=2)
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
-        logging.error(f"Gagal menyimpan ke {PRICE_FILE}: {e}")
+        print(f"Error fetching CoinGecko data: {e}")
+        return None
 
-
-def get_trend_emoji(current: float, previous: float | None) -> str:
-    """Menentukan tren naik (🟢), turun (🔴), atau tetap/awal (⚪)"""
-    if previous is None or current == previous:
-        return "⚪"
-    elif current > previous:
-        return "🟢"
-    else:
-        return "🔴"
-
-
-# --- API HARGA CRYPTO & FIAT (ASYNC) ---
-async def get_multiple_prices(client: httpx.AsyncClient) -> dict | None:
-    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,ripple&vs_currencies=usd,idr"
-    try:
-        res = await client.get(url, timeout=10.0)
-        if res.status_code == 200:
-            return res.json()
-    except Exception as e:
-        logging.error(f"Error Request API CoinGecko: {e}")
-    return None
-
-
-async def get_fiat_rate(client: httpx.AsyncClient, from_curr: str, to_curr: str) -> float | None:
-    url = f"https://open.er-api.com/v6/latest/{from_curr.upper()}"
-    try:
-        res = await client.get(url, timeout=10.0)
-        data = res.json()
-        if data.get("result") == "success":
-            return data["rates"].get(to_curr.upper())
-    except Exception as e:
-        logging.error(f"Error Fiat rate: {e}")
-    return None
-
-
-# --- API BGEOMETRICS ON-CHAIN METRICS (ASYNC) ---
-async def get_bgeometrics_metrics(client: httpx.AsyncClient) -> dict:
-    base_url = "https://charts.bgeometrics.com/files/"
+def get_bgeometrics_metrics():
+    """Mengambil metrik on-chain Realized Price & Delta Price dari BGeometrics"""
+    headers = {"User-Agent": "Mozilla/5.0"}
     metrics = {"realized_price": None, "delta_price": None}
-
+    
+    # Endpoint Realized Price
     try:
-        res = await client.get(f"{base_url}realized_price.json", timeout=10.0)
-        if res.status_code == 200:
-            data = res.json()
-            if data:
-                for entry in reversed(data):
-                    if len(entry) > 1 and entry[1] is not None:
-                        metrics["realized_price"] = float(entry[1])
-                        break
+        res_realized = requests.get(
+            "https://api.bgeometrics.com/v1/bitcoin-realized-price",
+            headers=headers,
+            timeout=15
+        )
+        if res_realized.status_code == 200:
+            data = res_realized.json()
+            # Ambil entri data terbaru
+            metrics["realized_price"] = float(data[-1]["value"]) if isinstance(data, list) else float(data.get("value", 0))
     except Exception as e:
-        logging.error(f"Error Request Realized Price: {e}")
+        print(f"Error fetching Realized Price: {e}")
 
+    # Endpoint Delta Price
     try:
-        res = await client.get(f"{base_url}delta_cap.json", timeout=10.0)
-        if res.status_code == 200:
-            data = res.json()
-            if data:
-                for entry in reversed(data):
-                    if len(entry) > 1 and entry[1] is not None:
-                        metrics["delta_price"] = float(entry[1])
-                        break
+        res_delta = requests.get(
+            "https://api.bgeometrics.com/v1/bitcoin-delta-price",
+            headers=headers,
+            timeout=15
+        )
+        if res_delta.status_code == 200:
+            data = res_delta.json()
+            metrics["delta_price"] = float(data[-1]["value"]) if isinstance(data, list) else float(data.get("value", 0))
     except Exception as e:
-        logging.error(f"Error Request Delta Price: {e}")
+        print(f"Error fetching Delta Price: {e}")
 
     return metrics
 
+def format_message(prices, metrics):
+    """Menyusun teks pesan dengan format HTML"""
+    btc_price = prices.get("bitcoin", {}).get("usd", 0)
+    btc_change = prices.get("bitcoin", {}).get("usd_24h_change", 0)
+    eth_price = prices.get("ethereum", {}).get("usd", 0)
+    eth_change = prices.get("ethereum", {}).get("usd_24h_change", 0)
+    sol_price = prices.get("solana", {}).get("usd", 0)
+    sol_change = prices.get("solana", {}).get("usd_24h_change", 0)
+    xrp_price = prices.get("ripple", {}).get("usd", 0)
+    xrp_change = prices.get("ripple", {}).get("usd_24h_change", 0)
 
-# --- EKSEKUSI PENGIRIMAN PESAN ---
-async def send_update():
-    prev_prices = load_previous_prices()
+    arrow = lambda c: "🟢 +" if c >= 0 else "🔴 "
 
-    async with httpx.AsyncClient() as client:
-        data_task = get_multiple_prices(client)
-        onchain_task = get_bgeometrics_metrics(client)
-        usd_idr_task = get_fiat_rate(client, "usd", "idr")
-        eur_idr_task = get_fiat_rate(client, "eur", "idr")
+    msg = "📊 <b>UPDATE PASAR KRIPTO</b>\n\n"
+    msg += f"• <b>BTC:</b> ${btc_price:,.2f} ({arrow(btc_change)}{btc_change:.2f}%)\n"
+    msg += f"• <b>ETH:</b> ${eth_price:,.2f} ({arrow(eth_change)}{eth_change:.2f}%)\n"
+    msg += f"• <b>SOL:</b> ${sol_price:,.2f} ({arrow(sol_change)}{sol_change:.2f}%)\n"
+    msg += f"• <b>XRP:</b> ${xrp_price:,.4f} ({arrow(xrp_change)}{xrp_change:.2f}%)\n\n"
 
-        data, onchain_data, usd_idr, eur_idr = await asyncio.gather(
-            data_task, onchain_task, usd_idr_task, eur_idr_task
-        )
+    msg += "⛓ <b>On-Chain Metrics (BTC)</b>\n"
+    if metrics.get("realized_price"):
+        msg += f"• <b>Realized Price:</b> ${metrics['realized_price']:,.2f}\n"
+    if metrics.get("delta_price"):
+        msg += f"• <b>Delta Price:</b> ${metrics['delta_price']:,.2f}\n"
 
-    if not data:
-        logging.warning("Gagal mengambil data harga dari CoinGecko, membatalkan pengiriman.")
-        return
+    # Evaluasi status peringatan jika harga di bawah Realized Price
+    realized = metrics.get("realized_price")
+    if realized and btc_price < realized:
+        msg += "\n⚠️ <b>Peringatan:</b> Harga BTC berada di bawah Realized Price (Undervalued Zone)!"
 
-    btc_usd = data.get("bitcoin", {}).get("usd", 0)
-    eth_usd = data.get("ethereum", {}).get("usd", 0)
-    sol_usd = data.get("solana", {}).get("usd", 0)
-    xrp_usd = data.get("ripple", {}).get("usd", 0)
-
-    # Deteksi Tren
-    btc_trend = get_trend_emoji(btc_usd, prev_prices.get("btc_usd"))
-    eth_trend = get_trend_emoji(eth_usd, prev_prices.get("eth_usd"))
-    sol_trend = get_trend_emoji(sol_usd, prev_prices.get("sol_usd"))
-    xrp_trend = get_trend_emoji(xrp_usd, prev_prices.get("xrp_usd"))
-
-    is_first_run = prev_prices.get("btc_usd") is None
-
-    # Simpan harga terbaru
-    save_current_prices({
-        "btc_usd": btc_usd,
-        "eth_usd": eth_usd,
-        "sol_usd": sol_usd,
-        "xrp_usd": xrp_usd,
-    })
-
-    lines = []
-    if is_first_run or btc_trend != "⚪":
-        lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
-    if is_first_run or eth_trend != "⚪":
-        lines.append(f"{eth_trend} $ETH = ${eth_usd:,.2f}")
-    if is_first_run or sol_trend != "⚪":
-        lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
-    if is_first_run or xrp_trend != "⚪":
-        lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
-
-    if not lines:
-        logging.info("Tidak ada perubahan harga pada aset crypto. Pesan dilewati.")
-        return
-
-    price_text = "\n".join(lines)
-
-    onchain_info = ""
-    if onchain_data["realized_price"]:
-        onchain_info += f"\n\n<b>BTC Realized Price:</b> ${onchain_data['realized_price']:,.2f}"
-    if onchain_data["delta_price"]:
-        onchain_info += f"\n<b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
-
-    fiat_info = ""
-    if usd_idr:
-        fiat_info += f"\n<b>USD Price:</b> IDR {usd_idr:,.2f}"
-    if eur_idr:
-        fiat_info += f"\n<b>EUR Price:</b> IDR {eur_idr:,.2f}"
-
-    msg = (
-        f"{price_text}{onchain_info}{fiat_info}\n\n"
-        "<i>Real time prices update by CoinGecko & BGeometrics.</i>"
-    )
-
-    async with Bot(token=TOKEN) as bot:
-        await bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
-    
-    logging.info("Pesan update berhasil dikirim ke Telegram!")
-
+    return msg
 
 async def main():
-    # Dijalankan sekali per trigger GitHub Actions
-    await send_update()
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Error: TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum disetel di Secrets.")
+        return
 
+    prices = get_crypto_prices()
+    metrics = get_bgeometrics_metrics()
+
+    if not prices:
+        print("Gagal mengambil data harga. Pengiriman pesan dibatalkan.")
+        return
+
+    message = format_message(prices, metrics)
+
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    await bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=message,
+        parse_mode=ParseMode.HTML
+    )
+    print("Pesan pemantauan berhasil dikirim.")
 
 if __name__ == "__main__":
-    if not TOKEN:
-        raise ValueError("Error: TELEGRAM_TOKEN belum diatur!")
-    if not TARGET_CHAT_ID:
-        raise ValueError("Error: TARGET_CHAT_ID belum diatur!")
-
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("Bot dihentikan.")
+    asyncio.run(main())
