@@ -1,13 +1,16 @@
-name: Crypto Price Bot
+name: Crypto Telegram Monitor
 
-on: # Atau gunakan cron untuk otomatisasi
+on:
   schedule:
-    - cron: '*/10 * * * *' # Berjalan setiap 10 menit sekali
-  workflow_dispatch: # Memungkinkan tombol Run manual di tab Actions GitHub
+    # Jadwal berjalan otomatis setiap 4 jam (sesuaikan dengan kebutuhan)
+    # Format cron UTC: menit jam hari bulan hari_dalam_minggu
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # Memungkinkan eksekusi manual via tombol "Run workflow" di GitHub
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -15,16 +18,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+          cache: 'pip' # Mempercepat eksekusi dengan caching dependency
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install httpx python-telegram-bot
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Bot Script
+      - name: Execute Monitor Script
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
-        run: |
-          python bot.py
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
