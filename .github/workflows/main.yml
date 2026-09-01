@@ -1,7 +1,6 @@
 name: Crypto Price Bot
 
-on:
-  scheduled: # Atau gunakan cron untuk otomatisasi
+on: # Atau gunakan cron untuk otomatisasi
   schedule:
     - cron: '*/10 * * * *' # Berjalan setiap 10 menit sekali
   workflow_dispatch: # Memungkinkan tombol Run manual di tab Actions GitHub
