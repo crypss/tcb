@@ -1,19 +1,14 @@
-name: Telegram Price Cron
+name: Crypto Price Bot
 
 on:
+  scheduled: # Atau gunakan cron untuk otomatisasi
   schedule:
-    - cron: '0 */4 * * *'
-  workflow_dispatch:
-
-# Memberikan izin akses tulis ke repositori agar git push berhasil
-permissions:
-  contents: write
+    - cron: '*/10 * * * *' # Berjalan setiap 10 menit sekali
+  workflow_dispatch: # Memungkinkan tombol Run manual di tab Actions GitHub
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -22,22 +17,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install httpx python-telegram-bot
 
-      - name: Run Telegram Update Script
+      - name: Run Bot Script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
-        run: python bot.py
-
-      - name: Commit & Push Price History
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add last_prices.json
-          git diff --staged --quiet || (git commit -m "Update last prices history [skip ci]" && git push)
+          python bot.py
