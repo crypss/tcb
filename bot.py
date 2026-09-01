@@ -14,7 +14,6 @@ logging.basicConfig(
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
 PRICE_FILE = "last_prices.json"
-INTERVAL_SECONDS = 900
 
 
 # --- MANAJEMEN PENYIMPANAN HARGA DENGAN FILE ---
@@ -182,17 +181,9 @@ async def send_update():
     logging.info("Pesan update berhasil dikirim ke Telegram!")
 
 
-# --- MAIN LOOP (MENJALANKAN SETIAP 15 MENIT) ---
 async def main():
-    logging.info("Bot pemantau harga crypto dinyalakan (Interval: 15 menit).")
-    while True:
-        try:
-            await send_update()
-        except Exception as e:
-            logging.error(f"Terjadi kesalahan saat mengeksekusi send_update: {e}")
-
-        logging.info(f"Menunggu {INTERVAL_SECONDS // 1} menit untuk eksekusi berikutnya...")
-        await asyncio.sleep(INTERVAL_SECONDS)
+    # Dijalankan sekali per trigger GitHub Actions
+    await send_update()
 
 
 if __name__ == "__main__":
@@ -204,4 +195,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("Bot dihentikan oleh pengguna.")
+        logging.info("Bot dihentikan.")
