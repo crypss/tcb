@@ -122,7 +122,7 @@ def get_bgeometrics_metrics():
 
 # --- API COINGLASS LIQUIDATION MAP / HEATMAP ---
 def get_coinglass_liquidation_analysis(current_btc_price: float):
-    """Mengambil data liquidation map dari Coinglass API v4 dan membandingkan tekanan long vs short"""
+    """Mengambil data liquidation map dari Coinglass API v4 dengan parsing yang lebih aman"""
     if not COINGLASS_API_KEY:
         return "⚠️ API Key Coinglass belum diatur."
         
@@ -141,41 +141,58 @@ def get_coinglass_liquidation_analysis(current_btc_price: float):
         res = requests.get(url, headers=headers, params=params, timeout=10)
         if res.status_code == 200:
             res_data = res.json()
-            if res_data.get("code") == "0" or res_data.get("success"):
-                liq_data = res_data.get("data", {})
+            
+            # Cek apakah request sukses
+            if str(res_data.get("code")) == "0" or res_data.get("success") == True:
+                liq_data = res_data.get("data", [])
                 
-                # Parsing struktur data liquidation map untuk membandingkan posisi tebal di bawah vs atas harga saat ini
-                # Jika data berupa dictionary level harga likuidasi:
                 total_long_below = 0.0
                 total_short_above = 0.0
                 
-                # Iterasi struktur data (menyesuaikan format respons dictionary / list API v4)
-                if isinstance(liq_data, dict):
-                    # Contoh struktur umum: { "price_level": [long_volume, short_volume] } atau sejenisnya
-                    for price_str, items in liq_data.items():
+                # Menangani berbagai kemungkinan format struktur data dari Coinglass v4
+                if isinstance(liq_data, list):
+                    for item in liq_data:
+                        try:
+                            # Mengambil harga dan volume likuiditas dari struktur list/dict standar Coinglass
+                            p = float(item.get("price", item.get("h", 0)))
+                            vol = float(item.get("vol", item.get("value", item.get("l", 0))))
+                            
+                            if p > 0:
+                                if p < current_btc_price:
+                                    total_long_below += vol
+                                elif p > current_btc_price:
+                                    total_short_above += vol
+                        except (ValueError, TypeError, AttributeError):
+                            continue
+                elif isinstance(liq_data, dict):
+                    for price_str, val in liq_data.items():
                         try:
                             p = float(price_str)
-                            # Cek apakah items berupa list atau nested structure
-                            if isinstance(items, list) and len(items) > 0:
-                                # Ambil akumulasi nilai likuiditas jika tersedia di elemen pertama/kedua
-                                val = float(items[0][1]) if isinstance(items[0], list) and len(items[0]) > 1 else 0.0
-                                if p < current_btc_price:
-                                    total_long_below += val
-                                elif p > current_btc_price:
-                                    total_short_above += val
-                        except (ValueError, TypeError):
+                            v = float(val) if not isinstance(val, (list, dict)) else float(val[0])
+                            if p < current_btc_price:
+                                total_long_below += v
+                            elif p > current_btc_price:
+                                total_short_above += v
+                        except (ValueError, TypeError, IndexError):
                             continue
-                
-                # Analisis Magnet Zona Panas Heatmap
-                if total_long_below > total_short_above:
-                    diff_pct = ((total_long_below - total_short_above) / (total_long_below + 1e-9)) * 100
-                    return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Potensi market turun menjemput likuiditas ({diff_pct:.1f}% dominan di bawah)</i>"
-                elif total_short_above > total_long_below:
-                    diff_pct = ((total_short_above - total_long_below) / (total_short_above + 1e-9)) * 100
-                    return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Potensi market naik menjemput likuiditas ({diff_pct:.1f}% dominan di atas)</i>"
-                else:
-                    return "🔥 <b>BTC Liq Heatmap:</b> Likuiditas Seimbang (Netral)"
+
+                # Jika data berhasil terhitung
+                if total_long_below > 0 or total_short_above > 0:
+                    total_all = total_long_below + total_short_above
+                    long_pct = (total_long_below / total_all) * 100
+                    short_pct = (total_short_above / total_all) * 100
                     
+                    if total_long_below > total_short_above:
+                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Tekonologi Likuiditas: {long_pct:.1f}% di bawah vs {short_pct:.1f}% di atas. Potensi market turun menjemput bawah!</i>"
+                    else:
+                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Tekonologi Likuiditas: {short_pct:.1f}% di atas vs {long_pct:.1f}% di bawah. Potensi market naik menjemput atas!</i>"
+                else:
+                    return f"🔥 <b>BTC Liq Heatmap:</b> Data API Terbaca (Aktivitas Normal)"
+            else:
+                msg_err = res_data.get("msg", "Unknown error")
+                logging.error(f"Coinglass API Error Response: {msg_err}")
+                return f"🔥 <b>BTC Liq Heatmap:</b> API Respon Gagal ({msg_err})"
+                
     except Exception as e:
         logging.error(f"Error Request Coinglass Liquidation Map: {e}")
         
