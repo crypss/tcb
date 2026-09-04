@@ -94,15 +94,12 @@ def get_fiat_rate(from_curr: str, to_curr: str) -> float:
 
 # --- API BGEOMETRICS ON-CHAIN METRICS ---
 def get_bgeometrics_metrics():
-    """Mengambil Realized Price & Delta Price dari BGeometrics"""
     base_url = "https://charts.bgeometrics.com/files/"
-    
     metrics = {
         "realized_price": None,
         "delta_price": None
     }
     
-    # 1. Fetch Realized Price
     try:
         res = requests.get(f"{base_url}realized_price.json", timeout=10)
         if res.status_code == 200:
@@ -112,7 +109,6 @@ def get_bgeometrics_metrics():
     except Exception as e:
         logging.error(f"Error Request Realized Price: {e}")
 
-    # 2. Fetch Delta Price
     try:
         res = requests.get(f"{base_url}delta_cap.json", timeout=10)
         if res.status_code == 200:
@@ -124,32 +120,66 @@ def get_bgeometrics_metrics():
 
     return metrics
 
-# --- API COINGLASS LIQUIDATION HEATMAP ---
-def get_coinglass_liquidation_summary():
-    """Mengambil ringkasan data likuiditas/heatmap BTC dari Coinglass"""
+# --- API COINGLASS LIQUIDATION MAP / HEATMAP ---
+def get_coinglass_liquidation_analysis(current_btc_price: float):
+    """Mengambil data liquidation map dari Coinglass API v4 dan membandingkan tekanan long vs short"""
     if not COINGLASS_API_KEY:
-        return None
+        return "⚠️ API Key Coinglass belum diatur."
         
-    url = "https://open-api-v3.coinglass.com/api/futures/liquidation/map"
+    url = "https://open-api-v4.coinglass.com/api/futures/liquidation/map"
     headers = {
         "coinglassSecret": COINGLASS_API_KEY,
         "accept": "application/json"
     }
     params = {
-        "symbol": "BTC"
+        "exchange": "Binance",
+        "symbol": "BTCUSDT",
+        "range": "1d"
     }
     
     try:
         res = requests.get(url, headers=headers, params=params, timeout=10)
         if res.status_code == 200:
             res_data = res.json()
-            if res_data.get("success"):
-                # Parsing data sesuai struktur respons endpoint Coinglass kamu
-                return res_data.get("data")
+            if res_data.get("code") == "0" or res_data.get("success"):
+                liq_data = res_data.get("data", {})
+                
+                # Parsing struktur data liquidation map untuk membandingkan posisi tebal di bawah vs atas harga saat ini
+                # Jika data berupa dictionary level harga likuidasi:
+                total_long_below = 0.0
+                total_short_above = 0.0
+                
+                # Iterasi struktur data (menyesuaikan format respons dictionary / list API v4)
+                if isinstance(liq_data, dict):
+                    # Contoh struktur umum: { "price_level": [long_volume, short_volume] } atau sejenisnya
+                    for price_str, items in liq_data.items():
+                        try:
+                            p = float(price_str)
+                            # Cek apakah items berupa list atau nested structure
+                            if isinstance(items, list) and len(items) > 0:
+                                # Ambil akumulasi nilai likuiditas jika tersedia di elemen pertama/kedua
+                                val = float(items[0][1]) if isinstance(items[0], list) and len(items[0]) > 1 else 0.0
+                                if p < current_btc_price:
+                                    total_long_below += val
+                                elif p > current_btc_price:
+                                    total_short_above += val
+                        except (ValueError, TypeError):
+                            continue
+                
+                # Analisis Magnet Zona Panas Heatmap
+                if total_long_below > total_short_above:
+                    diff_pct = ((total_long_below - total_short_above) / (total_long_below + 1e-9)) * 100
+                    return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Potensi market turun menjemput likuiditas ({diff_pct:.1f}% dominan di bawah)</i>"
+                elif total_short_above > total_long_below:
+                    diff_pct = ((total_short_above - total_long_below) / (total_short_above + 1e-9)) * 100
+                    return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Potensi market naik menjemput likuiditas ({diff_pct:.1f}% dominan di atas)</i>"
+                else:
+                    return "🔥 <b>BTC Liq Heatmap:</b> Likuiditas Seimbang (Netral)"
+                    
     except Exception as e:
-        logging.error(f"Error Request Coinglass Liquidation: {e}")
+        logging.error(f"Error Request Coinglass Liquidation Map: {e}")
         
-    return None
+    return "🔥 <b>BTC Liq Heatmap:</b> Gagal memproses data rincian"
 
 # --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
@@ -157,9 +187,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     
     data = get_multiple_prices()
     onchain_data = get_bgeometrics_metrics()
-    coinglass_data = get_coinglass_liquidation_summary()
     
-    # Ambil kurs fiat USD ke IDR dan EUR ke IDR
     usd_idr = get_fiat_rate("usd", "idr")
     eur_idr = get_fiat_rate("eur", "idr")
 
@@ -172,49 +200,42 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
-    # Menentukan tren naik/turun
+    # Tarik analisis heatmap Coinglass berdasarkan harga BTC saat ini
+    coinglass_analysis = get_coinglass_liquidation_analysis(btc_usd)
+
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
     eth_trend = get_trend_emoji(eth_usd, previous_prices["eth_usd"])
     sol_trend = get_trend_emoji(sol_usd, previous_prices["sol_usd"])
     xrp_trend = get_trend_emoji(xrp_usd, previous_prices["xrp_usd"])
 
-    # Update ingatan harga
     previous_prices["btc_usd"] = btc_usd
     previous_prices["eth_usd"] = eth_usd
     previous_prices["sol_usd"] = sol_usd
     previous_prices["xrp_usd"] = xrp_usd
 
-    # Menyusun pesan per baris koin
     lines = []
     if btc_trend:
         lines.append(f"{btc_trend} $BTC = ${btc_usd:,.2f}")
-
     if eth_trend:
         lines.append(f"{eth_trend} $ETH = ${eth_usd:,.2f}")
-        
     if sol_trend:
         lines.append(f"{sol_trend} $SOL = ${sol_usd:,.2f}")
-        
     if xrp_trend:
         lines.append(f"{xrp_trend} $XRP = ${xrp_usd:,.4f}")
 
     if lines:
         price_text = "\n".join(lines)
         
-        # Tambahkan informasi On-Chain BGeometrics
         onchain_info = ""
         if onchain_data["realized_price"]:
             onchain_info += f"\n\n📊 <b>BTC Realized Price:</b> ${onchain_data['realized_price']:,.2f}"
         if onchain_data["delta_price"]:
             onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
-        # Tambahkan informasi Coinglass Liquidation Heatmap (jika ada)
         liquidation_info = ""
-        if coinglass_data:
-            # Contoh placeholder penambahan data heatmap ke pesan
-            liquidation_info += f"\n🔥 <b>BTC Liq Heatmap:</b> Data Tersedia"
+        if coinglass_analysis:
+            liquidation_info += f"\n\n{coinglass_analysis}"
 
-        # Tambahkan informasi Kurs Fiat (USD & EUR ke IDR)
         fiat_info = ""
         if usd_idr:
             fiat_info += f"\n\n💵 <b>USD:</b> IDR {usd_idr:,.2f}"
@@ -299,5 +320,5 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan format harga standar...")
+    print("Bot berjalan dengan integrasi Coinglass Liquidation Map v4...")
     app.run_polling()
