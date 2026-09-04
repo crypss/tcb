@@ -119,39 +119,36 @@ def get_bgeometrics_metrics():
 
     return metrics
 
-# --- API PUBLIK GRATIS: BINANCE LONG/SHORT RATIO ---
+# --- API PUBLIK GRATIS: BINANCE 24HR TICKER (STABIL & ANTI-BLOCK) ---
 def get_binance_market_sentiment():
-    """Mengambil data Long/Short Ratio global BTC dari Binance Futures secara publik & gratis"""
-    url = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
+    """Mengambil data perubahan harga & volume 24 jam BTC dari Binance Spot secara publik"""
+    url = "https://api.binance.com/api/v3/ticker/24hr"
     params = {
-        "symbol": "BTCUSDT",
-        "period": "1h",
-        "limit": 1
+        "symbol": "BTCUSDT"
     }
     
     try:
         res = requests.get(url, params=params, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if data and len(data) > 0:
-                latest = data[0]
-                long_account = float(latest.get("longAccount", 0)) * 100
-                short_account = float(latest.get("shortAccount", 0)) * 100
-                ratio = float(latest.get("longShortRatio", 1))
+            price_change_pct = float(data.get("priceChangePercent", 0))
+            volume_btc = float(data.get("volume", 0))
+            
+            # Menentukan sentimen berdasarkan momentum 24 jam
+            if price_change_pct > 3.0:
+                sentiment_text = "🔥 <i>Momentum Bullish Kuat (Buyer Mendominasi)</i>"
+            elif price_change_pct < -3.0:
+                sentiment_text = "💧 <i>Momentum Bearish Kuat (Seller Mendominasi)</i>"
+            else:
+                sentiment_text = "⚖️ <i>Market Bergerak Sideways / Konsolidasi</i>"
                 
-                # Analisis sentimen sederhana
-                if long_account > 55:
-                    status = "⚠️ <i>Longs terlalu padat! Rawan kena long squeeze (turun dulu)</i>"
-                elif short_account > 55:
-                    status = "⚠️ <i>Shorts terlalu padat! Rawan kena short squeeze (naik dulu)</i>"
-                else:
-                    status = "⚖️ <i>Market seimbang / netral</i>"
-                    
-                return f"📊 <b>Binance BTC L/S Ratio:</b> Long {long_account:.1f}% | Short {short_account:.1f}%\n{status}"
+            sign = "+" if price_change_pct > 0 else ""
+            return f"📊 <b>Binance BTC 24h:</b> {sign}{price_change_pct:.2f}% (Vol: {volume_btc:,.0f} BTC)\n{sentiment_text}"
     except Exception as e:
-        logging.error(f"Error Request Binance Sentiment: {e}")
+        logging.error(f"Error Request Binance Ticker: {e}")
         
     return None
+
 
 # --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
