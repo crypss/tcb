@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from telegram import Update, BotCommand
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Setup Logging
@@ -80,7 +80,7 @@ def get_crypto_price(crypto_symbol: str, target_currency: str) -> float:
         return res.get(crypto_id, {}).get(target_currency.lower())
     except Exception as e:
         logging.error(f"Error Crypto-to-Fiat: {e}")
-        return None
+    return None
 
 def get_fiat_rate(from_curr: str, to_curr: str) -> float:
     url = f"https://open.er-api.com/v6/latest/{from_curr.upper()}"
@@ -104,7 +104,7 @@ def get_bgeometrics_metrics():
         res = requests.get(f"{base_url}realized_price.json", timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if data and len(data) > 0:
+            if data and len(data) > 0 and data[-1][1] is not None:
                 metrics["realized_price"] = float(data[-1][1])
     except Exception as e:
         logging.error(f"Error Request Realized Price: {e}")
@@ -113,22 +113,21 @@ def get_bgeometrics_metrics():
         res = requests.get(f"{base_url}delta_cap.json", timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if data and len(data) > 0:
+            if data and len(data) > 0 and data[-1][1] is not None:
                 metrics["delta_price"] = float(data[-1][1])
     except Exception as e:
         logging.error(f"Error Request Delta Price: {e}")
 
     return metrics
 
-# --- API COINGLASS LIQUIDATION MAP / HEATMAP ---
+# --- API COINGLASS LIQUIDATION MAP V4 ---
 def get_coinglass_liquidation_analysis(current_btc_price: float):
-    """Mengambil data liquidation map dari Coinglass API v4 dengan parsing yang lebih aman"""
     if not COINGLASS_API_KEY:
         return "⚠️ API Key Coinglass belum diatur."
         
     url = "https://open-api-v4.coinglass.com/api/futures/liquidation/map"
     headers = {
-        "coinglassSecret": COINGLASS_API_KEY,
+        "CG-API-KEY": COINGLASS_API_KEY,
         "accept": "application/json"
     }
     params = {
@@ -141,19 +140,15 @@ def get_coinglass_liquidation_analysis(current_btc_price: float):
         res = requests.get(url, headers=headers, params=params, timeout=10)
         if res.status_code == 200:
             res_data = res.json()
-            
-            # Cek apakah request sukses
             if str(res_data.get("code")) == "0" or res_data.get("success") == True:
                 liq_data = res_data.get("data", [])
                 
                 total_long_below = 0.0
                 total_short_above = 0.0
                 
-                # Menangani berbagai kemungkinan format struktur data dari Coinglass v4
                 if isinstance(liq_data, list):
                     for item in liq_data:
                         try:
-                            # Mengambil harga dan volume likuiditas dari struktur list/dict standar Coinglass
                             p = float(item.get("price", item.get("h", 0)))
                             vol = float(item.get("vol", item.get("value", item.get("l", 0))))
                             
@@ -176,23 +171,20 @@ def get_coinglass_liquidation_analysis(current_btc_price: float):
                         except (ValueError, TypeError, IndexError):
                             continue
 
-                # Jika data berhasil terhitung
                 if total_long_below > 0 or total_short_above > 0:
                     total_all = total_long_below + total_short_above
                     long_pct = (total_long_below / total_all) * 100
                     short_pct = (total_short_above / total_all) * 100
                     
                     if total_long_below > total_short_above:
-                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Tekonologi Likuiditas: {long_pct:.1f}% di bawah vs {short_pct:.1f}% di atas. Potensi market turun menjemput bawah!</i>"
+                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Likuiditas: {long_pct:.1f}% di bawah vs {short_pct:.1f}% di atas. Potensi market turun menjemput bawah!</i>"
                     else:
-                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Tekonologi Likuiditas: {short_pct:.1f}% di atas vs {long_pct:.1f}% di bawah. Potensi market naik menjemput atas!</i>"
+                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Likuiditas: {short_pct:.1f}% di atas vs {long_pct:.1f}% di bawah. Potensi market naik menjemput atas!</i>"
                 else:
-                    return f"🔥 <b>BTC Liq Heatmap:</b> Data API Terbaca (Aktivitas Normal)"
+                    return "🔥 <b>BTC Liq Heatmap:</b> Data API Terbaca (Aktivitas Normal)"
             else:
                 msg_err = res_data.get("msg", "Unknown error")
-                logging.error(f"Coinglass API Error Response: {msg_err}")
                 return f"🔥 <b>BTC Liq Heatmap:</b> API Respon Gagal ({msg_err})"
-                
     except Exception as e:
         logging.error(f"Error Request Coinglass Liquidation Map: {e}")
         
@@ -217,7 +209,6 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
 
-    # Tarik analisis heatmap Coinglass berdasarkan harga BTC saat ini
     coinglass_analysis = get_coinglass_liquidation_analysis(btc_usd)
 
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
@@ -332,10 +323,10 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan integrasi Coinglass Liquidation Map v4...")
+    print("Bot berjalan dengan integrasi lengkap Coinglass v4...")
     app.run_polling()
