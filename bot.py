@@ -9,6 +9,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
+COINGLASS_API_KEY = os.getenv("COINGLASS_API_KEY")
 
 CRYPTO_MAP = {
     'btc': 'bitcoin',
@@ -123,12 +124,40 @@ def get_bgeometrics_metrics():
 
     return metrics
 
+# --- API COINGLASS LIQUIDATION HEATMAP ---
+def get_coinglass_liquidation_summary():
+    """Mengambil ringkasan data likuiditas/heatmap BTC dari Coinglass"""
+    if not COINGLASS_API_KEY:
+        return None
+        
+    url = "https://open-api-v3.coinglass.com/api/futures/liquidation/map"
+    headers = {
+        "coinglassSecret": COINGLASS_API_KEY,
+        "accept": "application/json"
+    }
+    params = {
+        "symbol": "BTC"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=10)
+        if res.status_code == 200:
+            res_data = res.json()
+            if res_data.get("success"):
+                # Parsing data sesuai struktur respons endpoint Coinglass kamu
+                return res_data.get("data")
+    except Exception as e:
+        logging.error(f"Error Request Coinglass Liquidation: {e}")
+        
+    return None
+
 # --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     global previous_prices
     
     data = get_multiple_prices()
     onchain_data = get_bgeometrics_metrics()
+    coinglass_data = get_coinglass_liquidation_summary()
     
     # Ambil kurs fiat USD ke IDR dan EUR ke IDR
     usd_idr = get_fiat_rate("usd", "idr")
@@ -179,6 +208,12 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if onchain_data["delta_price"]:
             onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
+        # Tambahkan informasi Coinglass Liquidation Heatmap (jika ada)
+        liquidation_info = ""
+        if coinglass_data:
+            # Contoh placeholder penambahan data heatmap ke pesan
+            liquidation_info += f"\n🔥 <b>BTC Liq Heatmap:</b> Data Tersedia"
+
         # Tambahkan informasi Kurs Fiat (USD & EUR ke IDR)
         fiat_info = ""
         if usd_idr:
@@ -186,7 +221,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if eur_idr:
             fiat_info += f"\n💶 <b>EUR:</b> IDR {eur_idr:,.2f}"
             
-        msg = f"{price_text}{onchain_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko & BGeometrics.</i>"
+        msg = f"{price_text}{onchain_info}{liquidation_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko, BGeometrics & Coinglass.</i>"
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
