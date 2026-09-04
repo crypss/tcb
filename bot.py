@@ -9,7 +9,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TARGET_CHAT_ID = os.getenv("TARGET_CHAT_ID")
-COINGLASS_API_KEY = os.getenv("COINGLASS_API_KEY")
 
 CRYPTO_MAP = {
     'btc': 'bitcoin',
@@ -120,75 +119,39 @@ def get_bgeometrics_metrics():
 
     return metrics
 
-# --- API COINGLASS LIQUIDATION MAP V4 ---
-def get_coinglass_liquidation_analysis(current_btc_price: float):
-    if not COINGLASS_API_KEY:
-        return "⚠️ API Key Coinglass belum diatur."
-        
-    url = "https://open-api-v4.coinglass.com/api/futures/liquidation/map"
-    headers = {
-        "CG-API-KEY": COINGLASS_API_KEY,
-        "accept": "application/json"
-    }
+# --- API PUBLIK GRATIS: BINANCE LONG/SHORT RATIO ---
+def get_binance_market_sentiment():
+    """Mengambil data Long/Short Ratio global BTC dari Binance Futures secara publik & gratis"""
+    url = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
     params = {
-        "exchange": "Binance",
         "symbol": "BTCUSDT",
-        "range": "1d"
+        "period": "1h",
+        "limit": 1
     }
     
     try:
-        res = requests.get(url, headers=headers, params=params, timeout=10)
+        res = requests.get(url, params=params, timeout=10)
         if res.status_code == 200:
-            res_data = res.json()
-            if str(res_data.get("code")) == "0" or res_data.get("success") == True:
-                liq_data = res_data.get("data", [])
+            data = res.json()
+            if data and len(data) > 0:
+                latest = data[0]
+                long_account = float(latest.get("longAccount", 0)) * 100
+                short_account = float(latest.get("shortAccount", 0)) * 100
+                ratio = float(latest.get("longShortRatio", 1))
                 
-                total_long_below = 0.0
-                total_short_above = 0.0
-                
-                if isinstance(liq_data, list):
-                    for item in liq_data:
-                        try:
-                            p = float(item.get("price", item.get("h", 0)))
-                            vol = float(item.get("vol", item.get("value", item.get("l", 0))))
-                            
-                            if p > 0:
-                                if p < current_btc_price:
-                                    total_long_below += vol
-                                elif p > current_btc_price:
-                                    total_short_above += vol
-                        except (ValueError, TypeError, AttributeError):
-                            continue
-                elif isinstance(liq_data, dict):
-                    for price_str, val in liq_data.items():
-                        try:
-                            p = float(price_str)
-                            v = float(val) if not isinstance(val, (list, dict)) else float(val[0])
-                            if p < current_btc_price:
-                                total_long_below += v
-                            elif p > current_btc_price:
-                                total_short_above += v
-                        except (ValueError, TypeError, IndexError):
-                            continue
-
-                if total_long_below > 0 or total_short_above > 0:
-                    total_all = total_long_below + total_short_above
-                    long_pct = (total_long_below / total_all) * 100
-                    short_pct = (total_short_above / total_all) * 100
-                    
-                    if total_long_below > total_short_above:
-                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Bawah (Longs Tebal)\n📉 <i>Likuiditas: {long_pct:.1f}% di bawah vs {short_pct:.1f}% di atas. Potensi market turun menjemput bawah!</i>"
-                    else:
-                        return f"🔥 <b>BTC Liq Heatmap:</b> Zona Panas di Atas (Shorts Tebal)\n📈 <i>Likuiditas: {short_pct:.1f}% di atas vs {long_pct:.1f}% di bawah. Potensi market naik menjemput atas!</i>"
+                # Analisis sentimen sederhana
+                if long_account > 55:
+                    status = "⚠️ <i>Longs terlalu padat! Rawan kena long squeeze (turun dulu)</i>"
+                elif short_account > 55:
+                    status = "⚠️ <i>Shorts terlalu padat! Rawan kena short squeeze (naik dulu)</i>"
                 else:
-                    return "🔥 <b>BTC Liq Heatmap:</b> Data API Terbaca (Aktivitas Normal)"
-            else:
-                msg_err = res_data.get("msg", "Unknown error")
-                return f"🔥 <b>BTC Liq Heatmap:</b> API Respon Gagal ({msg_err})"
+                    status = "⚖️ <i>Market seimbang / netral</i>"
+                    
+                return f"📊 <b>Binance BTC L/S Ratio:</b> Long {long_account:.1f}% | Short {short_account:.1f}%\n{status}"
     except Exception as e:
-        logging.error(f"Error Request Coinglass Liquidation Map: {e}")
+        logging.error(f"Error Request Binance Sentiment: {e}")
         
-    return "🔥 <b>BTC Liq Heatmap:</b> Gagal memproses data rincian"
+    return None
 
 # --- JOB PERIODIK ---
 async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
@@ -196,6 +159,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     
     data = get_multiple_prices()
     onchain_data = get_bgeometrics_metrics()
+    sentiment_data = get_binance_market_sentiment()
     
     usd_idr = get_fiat_rate("usd", "idr")
     eur_idr = get_fiat_rate("eur", "idr")
@@ -208,8 +172,6 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
     eth_usd = data.get("ethereum", {}).get("usd", 0)
     sol_usd = data.get("solana", {}).get("usd", 0)
     xrp_usd = data.get("ripple", {}).get("usd", 0)
-
-    coinglass_analysis = get_coinglass_liquidation_analysis(btc_usd)
 
     btc_trend = get_trend_emoji(btc_usd, previous_prices["btc_usd"])
     eth_trend = get_trend_emoji(eth_usd, previous_prices["eth_usd"])
@@ -240,9 +202,9 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if onchain_data["delta_price"]:
             onchain_info += f"\n🔻 <b>BTC Delta Price:</b> ${onchain_data['delta_price']:,.2f}"
             
-        liquidation_info = ""
-        if coinglass_analysis:
-            liquidation_info += f"\n\n{coinglass_analysis}"
+        sentiment_info = ""
+        if sentiment_data:
+            sentiment_info += f"\n\n{sentiment_data}"
 
         fiat_info = ""
         if usd_idr:
@@ -250,7 +212,7 @@ async def send_price_update(context: ContextTypes.DEFAULT_TYPE):
         if eur_idr:
             fiat_info += f"\n💶 <b>EUR:</b> IDR {eur_idr:,.2f}"
             
-        msg = f"{price_text}{onchain_info}{liquidation_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko, BGeometrics & Coinglass.</i>"
+        msg = f"{price_text}{onchain_info}{sentiment_info}{fiat_info}\n\n<i>Real time prices update by CoinGecko, BGeometrics & Binance API.</i>"
         
         try:
             await context.bot.send_message(chat_id=TARGET_CHAT_ID, text=msg, parse_mode="HTML")
@@ -323,10 +285,10 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     if app.job_queue:
-        app.job_queue.run_repeating(send_price_update, interval=60, first=5)
+        app.job_queue.run_repeating(send_price_update, interval=900, first=5)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot berjalan dengan integrasi lengkap Coinglass v4...")
+    print("Bot berjalan dengan Binance Market Sentiment Public API...")
     app.run_polling()
