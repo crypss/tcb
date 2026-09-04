@@ -30,4 +30,5 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
+          COINGLASS_API_KEY: ${{ secrets.COINGLASS_API_KEY }}
         run: python bot.py
